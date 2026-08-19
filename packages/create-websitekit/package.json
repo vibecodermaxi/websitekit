@@ -1,0 +1,48 @@
+{
+  "name": "create-websitekit",
+  "version": "0.1.0",
+  "description": "Scaffold a websitekit project \u2014 a page whose regions are individually owned and tradeable on chain.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vibecodermaxi/websitekit.git",
+    "directory": "packages/create-websitekit"
+  },
+  "homepage": "https://websitekit.org",
+  "bugs": {
+    "url": "https://github.com/vibecodermaxi/websitekit/issues"
+  },
+  "keywords": [
+    "create",
+    "scaffold",
+    "starter",
+    "nextjs",
+    "ethereum",
+    "websitekit"
+  ],
+  "type": "module",
+  "bin": {
+    "create-websitekit": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "template",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@websitekit/sdk": "workspace:*",
+    "@types/node": "26.1.1"
+  }
+}

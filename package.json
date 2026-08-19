@@ -1,0 +1,29 @@
+{
+  "name": "websitekit",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Turn regions of your page into ownable, tradeable inventory.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vibecodermaxi/websitekit.git"
+  },
+  "homepage": "https://websitekit.org",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "build:contracts": "cd packages/websitekit-contracts && forge build",
+    "test": "pnpm build:contracts && pnpm -r test",
+    "test:contracts": "cd packages/websitekit-contracts && forge test --threads 1",
+    "sizes": "cd packages/websitekit-contracts && forge build --sizes"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "tsx": "^4",
+    "typescript": "^5",
+    "vitest": "4.1.10"
+  }
+}

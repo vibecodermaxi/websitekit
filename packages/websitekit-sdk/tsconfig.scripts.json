@@ -1,0 +1,12 @@
+{
+  "//": "The scripts, typechecked. `tsconfig.json` covers `src` only, which is how six chain scripts sat broken against v2 for a whole release without a single error: nothing compiled them. `pnpm lint` runs both. `declaration` is off here, unlike the package build, because these are executables rather than a published API and viem's client types are too large for the compiler to serialize a declaration for.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "include": ["scripts", "src"]
+}

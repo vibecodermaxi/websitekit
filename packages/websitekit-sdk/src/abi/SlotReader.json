@@ -1,0 +1,365 @@
+[
+  {
+    "type": "function",
+    "name": "readSlots",
+    "inputs": [
+      {
+        "name": "site",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "keys",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "views",
+        "type": "tuple[]",
+        "internalType": "struct SlotReader.SlotView[]",
+        "components": [
+          {
+            "name": "key",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "owner",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "contentHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "floor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "effectiveFloor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "charged",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastPrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "askFloor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastPurchaseTs",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "version",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "takes",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "registered",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "available",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "tenant",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "rentalExpiry",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "unaccruedRent",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "ratePerDay",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxDurationSecs",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "readSlotsMulti",
+    "inputs": [
+      {
+        "name": "sites",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "keys",
+        "type": "bytes32[][]",
+        "internalType": "bytes32[][]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "out",
+        "type": "tuple[][]",
+        "internalType": "struct SlotReader.SlotView[][]",
+        "components": [
+          {
+            "name": "key",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "owner",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "contentHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "floor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "effectiveFloor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "charged",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastPrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "askFloor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastPurchaseTs",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "version",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "takes",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "registered",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "available",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "tenant",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "rentalExpiry",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "unaccruedRent",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "ratePerDay",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxDurationSecs",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "readTerms",
+    "inputs": [
+      {
+        "name": "site",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "t",
+        "type": "tuple",
+        "internalType": "struct SlotReader.Terms",
+        "components": [
+          {
+            "name": "implementationVersion",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "takeBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "reversionBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxReversionWeeks",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "cooldownSecs",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "protocolBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "protocolRentBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "siteRentBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minRentBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxAskBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "floorDeltaBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "floorChangeCooldown",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minFloor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxRentalTerm",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "settlementToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "paused",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "openRegistration",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "termsLocked",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "defaultFloor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "treasury",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "royaltyBps",
+            "type": "uint96",
+            "internalType": "uint96"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  }
+]

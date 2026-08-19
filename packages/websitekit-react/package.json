@@ -1,0 +1,71 @@
+{
+  "name": "@websitekit/react",
+  "version": "0.1.0",
+  "description": "React bindings for websitekit \u2014 <Slot>, useSlot, useBuy and the default buy dialog.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vibecodermaxi/websitekit.git",
+    "directory": "packages/websitekit-react"
+  },
+  "homepage": "https://websitekit.org",
+  "bugs": {
+    "url": "https://github.com/vibecodermaxi/websitekit/issues"
+  },
+  "keywords": [
+    "react",
+    "ethereum",
+    "viem",
+    "onchain",
+    "tokenization",
+    "websitekit"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "lint": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "viem": "^2",
+    "@websitekit/sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "26.1.1",
+    "@types/react": "^19",
+    "jsdom": "^29.1.1",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "viem": "2.55.8",
+    "@websitekit/sdk": "workspace:*"
+  }
+}

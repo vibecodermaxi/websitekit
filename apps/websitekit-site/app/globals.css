@@ -1,0 +1,1439 @@
+/* ===========================================================================
+   websitekit.org
+   ---------------------------------------------------------------------------
+   Two visual worlds live in this file and they are deliberately separate.
+
+   The SITE chrome (`.site`, `.ribbon`) is websitekit's own identity: cool blue-grey,
+   Charter, monospace for anything that is data.
+
+   The EXAMPLE boards (`.ex-*`) each get their OWN identity, because the entire
+   premise is that a websitekit site is mistakable for a real site of its type. A
+   newsletter that looks like a framework demo proves nothing. They share layout
+   primitives and nothing else — no token bleeds across the boundary.
+   =========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   websitekit's own chrome
+   --------------------------------------------------------------------------- */
+
+.site {
+  --ground: #e7eaef;
+  --surface: #fbfcfd;
+  --surface-2: #f1f3f7;
+  --ink: #14171d;
+  --muted: #5a6373;
+  --rule: #d0d6e0;
+  --accent: #2a4ca0;
+  --accent-soft: #e3e9f7;
+
+  --serif: Charter, 'Bitstream Charter', 'Iowan Old Style', 'Sitka Text', Georgia, serif;
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
+
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.62;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  .site {
+    --ground: #101318;
+    --surface: #171b22;
+    --surface-2: #1d222a;
+    --ink: #e4e8ee;
+    --muted: #949dac;
+    --rule: #2a313c;
+    --accent: #8fb2f5;
+    --accent-soft: #1b2536;
+  }
+}
+
+.wrap {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.site header.top {
+  padding: 4.5rem 0 0;
+}
+
+.home-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+}
+
+.home-nav nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  margin-bottom: 2.5rem;
+}
+
+.home-nav nav a {
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.home-nav nav a:hover {
+  color: var(--accent);
+}
+
+.docs-cards {
+  margin-bottom: 1rem;
+}
+
+.site h1 {
+  font-family: var(--mono);
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 2.5rem;
+}
+
+.site .lede {
+  font-size: clamp(1.6rem, 3.6vw, 2.35rem);
+  line-height: 1.22;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 1.25rem;
+  max-width: 20ch;
+  text-wrap: balance;
+}
+
+.site .sub {
+  font-size: 1.1rem;
+  color: var(--muted);
+  margin: 0 0 1rem;
+  max-width: 58ch;
+  text-wrap: pretty;
+}
+
+.site .benefits {
+  list-style: none;
+  margin: 2.5rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.site .benefits li {
+  background: var(--surface);
+  padding: 1.15rem 1.25rem;
+}
+
+.site .stack-note {
+  margin-top: 1.5rem;
+  font-size: 0.92rem;
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--rule);
+  color: var(--muted);
+}
+
+.site .benefits b {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.site .benefits span {
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.site h2 {
+  font-size: 1.5rem;
+  letter-spacing: -0.015em;
+  margin: 4.5rem 0 0.5rem;
+  text-wrap: balance;
+}
+
+.site .section-note {
+  color: var(--muted);
+  margin: 0 0 1.75rem;
+  max-width: 60ch;
+  font-size: 1rem;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 5rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 1.4rem;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.card .kicker {
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.card strong {
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
+}
+
+.card .terms {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 2px;
+  padding: 0.35rem 0.5rem;
+  line-height: 1.45;
+}
+
+.card p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.site footer.bottom {
+  border-top: 1px solid var(--rule);
+  padding: 1.5rem 0 4rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.site a {
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Documentation pages — rendered from docs/websitekit/*.md
+   --------------------------------------------------------------------------- */
+
+.docs-shell {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 3rem;
+  max-width: 74rem;
+  margin: 0 auto;
+  padding: 0 2rem 6rem;
+  align-items: start;
+}
+
+.docs-top {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem 1.5rem;
+  padding: 2rem 0 1.25rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 2.5rem;
+}
+
+.docs-top .back {
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.docs-top nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.docs-top nav a {
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.docs-top nav a.on,
+.docs-top nav a:hover {
+  color: var(--accent);
+}
+
+.docs-rail {
+  position: sticky;
+  top: 2rem;
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  padding-bottom: 2rem;
+}
+
+.docs-rail .rail-title {
+  display: block;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 0.5rem;
+}
+
+.docs-rail ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.docs-rail li a {
+  display: block;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 0.22rem 0 0.22rem 0.7rem;
+  border-left: 2px solid transparent;
+}
+
+.docs-rail li.sub a {
+  padding-left: 1.5rem;
+  opacity: 0.8;
+}
+
+.docs-rail li a:hover,
+.docs-rail li a:focus-visible {
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+.prose {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 2.5rem clamp(1.25rem, 4vw, 3rem) 3.5rem;
+}
+
+.prose > * {
+  max-width: 68ch;
+}
+
+.prose > .table-scroll,
+.prose > pre,
+.prose > hr {
+  max-width: none;
+}
+
+.prose h1 {
+  font-size: clamp(1.9rem, 4vw, 2.5rem);
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  margin: 0 0 1.5rem;
+  text-wrap: balance;
+}
+
+.prose h2 {
+  font-size: 1.5rem;
+  letter-spacing: -0.018em;
+  line-height: 1.2;
+  margin: 3rem 0 0.85rem;
+  text-wrap: balance;
+  scroll-margin-top: 1.5rem;
+}
+
+.prose h3 {
+  font-size: 1.15rem;
+  margin: 2.25rem 0 0.6rem;
+  text-wrap: balance;
+  scroll-margin-top: 1.5rem;
+}
+
+.prose h4 {
+  font-size: 1rem;
+  margin: 1.75rem 0 0.5rem;
+  scroll-margin-top: 1.5rem;
+}
+
+.prose p {
+  margin: 0 0 1.1rem;
+  text-wrap: pretty;
+}
+
+.prose ul,
+.prose ol {
+  margin: 0 0 1.25rem;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.prose li::marker {
+  color: var(--muted);
+}
+
+.prose a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+.prose .unlinked {
+  color: var(--ink);
+}
+
+.prose code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-soft, var(--rule));
+  border-radius: 2px;
+  padding: 0.08em 0.3em;
+  word-break: break-word;
+}
+
+.prose pre {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 1rem 1.15rem;
+  margin: 0 0 1.5rem;
+  overflow-x: auto;
+}
+
+.prose pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+.prose .table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  margin: 0 0 1.75rem;
+}
+
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.prose th {
+  text-align: left;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.65rem;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--rule);
+}
+
+.prose th,
+.prose td {
+  padding: 0.55rem 0.85rem;
+  vertical-align: top;
+}
+
+.prose tbody tr + tr td {
+  border-top: 1px solid var(--rule);
+}
+
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 2.5rem 0;
+}
+
+.prose blockquote {
+  margin: 0 0 1.25rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--accent);
+  color: var(--muted);
+}
+
+.prose .anchor {
+  font-family: var(--mono);
+  font-size: 0.68em;
+  font-weight: 400;
+  color: var(--muted);
+  text-decoration: none;
+  opacity: 0;
+  padding-left: 0.5em;
+  vertical-align: 0.15em;
+}
+
+.prose h2:hover .anchor,
+.prose h3:hover .anchor,
+.prose h4:hover .anchor,
+.prose .anchor:focus-visible {
+  opacity: 1;
+}
+
+@media (max-width: 62rem) {
+  .docs-shell {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.75rem;
+    padding: 0 1.25rem 4rem;
+  }
+  .docs-rail {
+    position: static;
+    max-height: none;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    background: var(--surface);
+    padding: 1.1rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The ribbon that sits on every example board
+   ---------------------------------------------------------------------------
+   Without this a visitor sees a newsletter and has no idea any of it is for
+   sale, which defeats the point of showing them. It is deliberately the only
+   piece of websitekit chrome on the page.
+   --------------------------------------------------------------------------- */
+
+.ribbon {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  padding: 0.55rem 1.25rem;
+  background: #14171d;
+  color: #e4e8ee;
+  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.ribbon a {
+  color: #8fb2f5;
+}
+
+.ribbon .sep {
+  color: #5a6373;
+}
+
+.ribbon .grow {
+  flex: 1 1 auto;
+}
+
+/* ---------------------------------------------------------------------------
+   Shared example primitives
+   --------------------------------------------------------------------------- */
+
+.ex {
+  min-height: 100vh;
+}
+
+.ex [data-slot] {
+  /* Every ownable region gets a hairline on hover. This is the affordance the scaffold's
+     alt-click placeholder does not have, and it is what makes "every element here is
+     separately owned" legible without a legend. */
+  outline-offset: 3px;
+  transition: outline-color 0.12s ease;
+  outline: 1px dashed transparent;
+}
+
+.ex:hover [data-slot]:hover {
+  outline-color: currentColor;
+  cursor: help;
+}
+
+.ex-foot {
+  padding: 2.5rem 1.5rem 4rem;
+  text-align: center;
+  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  opacity: 0.55;
+}
+
+/* An open slot sitting inline in a nav or a chip row. Reads as an offer, not as a gap. */
+.open-chip {
+  font-size: 0.78rem;
+  opacity: 0.75;
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------------------------
+   What this board pays its owner
+   ---------------------------------------------------------------------------
+   Deliberately websitekit's chrome, not the example's — a dev has left the
+   disguise by the time they reach it, and the numbers should not look like
+   part of the fiction.
+   --------------------------------------------------------------------------- */
+
+.earn {
+  background: #14171d;
+  color: #e4e8ee;
+  font-family: var(--serif, Charter, Georgia, serif);
+  border-top: 3px solid #2a4ca0;
+}
+
+.earn-inner {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+}
+
+.earn h2 {
+  font-size: 1.4rem;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.6rem;
+}
+
+.earn-intro,
+.earn-foot {
+  color: #949dac;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  margin: 0 0 1.75rem;
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+.earn-foot {
+  margin: 1.5rem 0 0;
+  font-size: 0.82rem;
+}
+
+.earn code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.82em;
+  background: #1d222a;
+  border: 1px solid #2a313c;
+  border-radius: 2px;
+  padding: 0.08em 0.32em;
+  color: #cbd3e0;
+}
+
+.earn-heads {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1px;
+  background: #2a313c;
+  border: 1px solid #2a313c;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 1.75rem;
+}
+
+.earn-heads > div {
+  background: #1a1f27;
+  padding: 1.1rem 1.2rem;
+}
+
+.earn-heads .k {
+  display: block;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.625rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #949dac;
+  margin-bottom: 0.5rem;
+}
+
+.earn-heads strong {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #8fb2f5;
+}
+
+.earn-scroll {
+  overflow-x: auto;
+  border: 1px solid #2a313c;
+  border-radius: 3px;
+}
+
+.earn table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.earn th {
+  text-align: left;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.625rem;
+  color: #949dac;
+  background: #1d222a;
+  border-bottom: 1px solid #2a313c;
+  white-space: nowrap;
+}
+
+.earn th,
+.earn td {
+  padding: 0.55rem 0.85rem;
+}
+
+.earn tbody tr + tr td {
+  border-top: 1px solid #222833;
+}
+
+.earn tr.is-open td {
+  background: #1a2233;
+}
+
+.earn .r {
+  text-align: right;
+}
+
+.earn .key {
+  color: #cbd3e0;
+  white-space: nowrap;
+}
+
+.earn .strong {
+  color: #8fb2f5;
+  font-weight: 600;
+}
+
+.earn .dim {
+  color: #949dac;
+}
+
+.earn .pill {
+  display: inline-block;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  padding: 0.12rem 0.45rem;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+
+.earn .pill.open {
+  color: #5bc08c;
+}
+
+.earn .pill.owned {
+  color: #7a8494;
+}
+
+/* ---------------------------------------------------------------------------
+   dispatch — a newsletter archive
+   Warm paper, one serif, a single narrow column. Nothing decorative.
+   --------------------------------------------------------------------------- */
+
+.ex-dispatch {
+  background: #f7f4ed;
+  color: #1c1a15;
+  font-family: 'Iowan Old Style', Charter, Georgia, 'Times New Roman', serif;
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.ex-dispatch .announce {
+  display: block;
+  padding: 0.6rem 1.25rem;
+  text-align: center;
+  background: #efe7d6;
+  border-bottom: 1px solid #ded6c4;
+  color: #5c5343;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.ex-dispatch .topnav {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 1rem 1.25rem 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #9a8f78;
+}
+
+.ex-dispatch .masthead {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 4rem 1.5rem 2rem;
+  text-align: center;
+  border-bottom: 1px solid #ded6c4;
+}
+
+.ex-dispatch .masthead h1 {
+  font-size: clamp(2.25rem, 6vw, 3.25rem);
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 0 0 0.6rem;
+  font-weight: 500;
+}
+
+.ex-dispatch .masthead p {
+  margin: 0;
+  font-style: italic;
+  color: #6b6353;
+  font-size: 1.05rem;
+}
+
+.ex-dispatch .sponsor-primary {
+  max-width: 40rem;
+  margin: 2rem auto;
+  padding: 1.1rem 1.25rem;
+  background: #fffdf8;
+  border: 1px solid #ded6c4;
+  text-align: center;
+  font-size: 0.95rem;
+}
+
+.ex-dispatch .sponsor-primary .label {
+  display: block;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #9a8f78;
+  margin-bottom: 0.5rem;
+}
+
+.ex-dispatch .issues {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem 1.5rem 0;
+}
+
+.ex-dispatch .issue {
+  padding: 2rem 0;
+  border-bottom: 1px solid #e6dfd0;
+}
+
+.ex-dispatch .issue h2 {
+  font-size: 1.55rem;
+  margin: 0 0 0.35rem;
+  letter-spacing: -0.01em;
+  font-weight: 500;
+}
+
+.ex-dispatch .issue .date {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #9a8f78;
+  display: block;
+  margin-bottom: 0.85rem;
+}
+
+.ex-dispatch .issue p {
+  margin: 0 0 1rem;
+  color: #3c382e;
+}
+
+.ex-dispatch .issue-sponsor {
+  font-size: 0.85rem;
+  color: #6b6353;
+  border-left: 2px solid #d8cdb4;
+  padding-left: 0.85rem;
+}
+
+.ex-dispatch .recs {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem;
+}
+
+.ex-dispatch .recs h3 {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9a8f78;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+.ex-dispatch .recs ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ex-dispatch .recs li {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e6dfd0;
+  font-size: 0.95rem;
+}
+
+.ex-dispatch a {
+  color: #7a4522;
+}
+
+.ex-dispatch .ex-foot {
+  color: #6b6353;
+}
+
+/* ---------------------------------------------------------------------------
+   devconf — a conference site
+   Dark, high-contrast, tiered. The loudest of the three, on purpose.
+   --------------------------------------------------------------------------- */
+
+.ex-devconf {
+  background: #0d0f1a;
+  color: #eceefb;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.ex-devconf .announce {
+  display: block;
+  padding: 0.6rem 1.25rem;
+  text-align: center;
+  background: #6f7bd6;
+  color: #0d0f1a;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.ex-devconf .topnav {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid #232842;
+  font-size: 0.85rem;
+  color: #9aa2c9;
+}
+
+.ex-devconf .hero {
+  padding: 5rem 1.5rem 3.5rem;
+  max-width: 60rem;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.ex-devconf .hero .eyebrow {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #6f7bd6;
+  margin: 0 0 1.25rem;
+}
+
+.ex-devconf .hero h1 {
+  font-size: clamp(2.75rem, 8vw, 5rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+  margin: 0 0 1rem;
+  background: linear-gradient(96deg, #eceefb 30%, #8f9cff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.ex-devconf .hero .when {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.85rem;
+  color: #9aa2c9;
+  margin: 0;
+}
+
+.ex-devconf .tier {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 3rem;
+}
+
+.ex-devconf .tier > h2 {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #6f7bd6;
+  font-weight: 600;
+  margin: 0 0 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid #232842;
+}
+
+.ex-devconf .headline-sponsor {
+  display: block;
+  text-align: center;
+  padding: 2.75rem 1.5rem;
+  border: 1px solid #2d3358;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #171b30, #10131f);
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.ex-devconf .grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.ex-devconf .grid.gold {
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.ex-devconf .grid.silver {
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+}
+
+.ex-devconf .grid > * {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1.5rem 1rem;
+  border: 1px solid #232842;
+  border-radius: 5px;
+  background: #12162445;
+  font-weight: 600;
+}
+
+.ex-devconf .grid.silver > * {
+  padding: 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #b9c0e0;
+}
+
+.ex-devconf .booths {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.85rem;
+}
+
+.ex-devconf .booths > * {
+  padding: 1.1rem;
+  border: 1px dashed #2d3358;
+  border-radius: 5px;
+  font-size: 0.9rem;
+  color: #b9c0e0;
+}
+
+.ex-devconf .note {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 3rem;
+  color: #9aa2c9;
+  font-size: 0.95rem;
+}
+
+.ex-devconf a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ex-devconf .ex-foot {
+  color: #9aa2c9;
+}
+
+/* ---------------------------------------------------------------------------
+   remoteroles — a job board
+   Utilitarian, dense, list-first. Reads like a tool, not a brochure.
+   --------------------------------------------------------------------------- */
+
+.ex-remoteroles {
+  background: #ffffff;
+  color: #101418;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.ex-remoteroles .banner {
+  display: block;
+  text-align: center;
+  padding: 0.85rem 1.25rem;
+  background: #0f766e;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.ex-remoteroles .head {
+  max-width: 54rem;
+  margin: 0 auto;
+  padding: 2.75rem 1.5rem 1.5rem;
+}
+
+.ex-remoteroles .head h1 {
+  font-size: 1.9rem;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.35rem;
+  font-weight: 700;
+}
+
+.ex-remoteroles .head p {
+  margin: 0;
+  color: #5b6570;
+}
+
+.ex-remoteroles .cats {
+  max-width: 54rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ex-remoteroles .cats > * {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #dbe1e6;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: #3d4750;
+  text-decoration: none;
+}
+
+.ex-remoteroles .listings {
+  max-width: 54rem;
+  margin: 1.75rem auto 0;
+  padding: 0 1.5rem;
+  border-top: 1px solid #e8ecef;
+}
+
+.ex-remoteroles .listing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.85rem;
+  padding: 1.05rem 0;
+  border-bottom: 1px solid #e8ecef;
+  text-decoration: none;
+  color: inherit;
+}
+
+.ex-remoteroles .listing .rank {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.7rem;
+  color: #9aa4ad;
+  width: 1.75rem;
+  flex: none;
+}
+
+.ex-remoteroles .listing .role {
+  font-weight: 600;
+  font-size: 1rem;
+  flex: 1 1 16rem;
+}
+
+.ex-remoteroles .listing .tag {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #0f766e;
+  background: #e6f4f1;
+  border-radius: 3px;
+  padding: 0.2rem 0.45rem;
+}
+
+.ex-remoteroles .foot-links {
+  max-width: 54rem;
+  margin: 0 auto;
+  padding: 1.75rem 1.5rem 0;
+  font-size: 0.85rem;
+  color: #5b6570;
+}
+
+.ex-remoteroles a {
+  color: #0f766e;
+}
+
+.ex-remoteroles .ex-foot {
+  color: #5b6570;
+}
+
+/* ---------------------------------------------------------------------------
+   vaultline — a DeFi protocol
+   Near-black with a single cyan signal, tabular figures, monospace data.
+   Deliberately NOT the purple-gradient default every protocol page reaches for.
+   --------------------------------------------------------------------------- */
+
+.ex-vaultline {
+  --vl-ink: #e8ecea;
+  --vl-dim: #8d9a97;
+  --vl-rule: #1f2926;
+  --vl-signal: #35e0b0;
+
+  background: #080b0a;
+  color: var(--vl-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.ex-vaultline .announce {
+  display: block;
+  padding: 0.6rem 1.25rem;
+  text-align: center;
+  background: var(--vl-signal);
+  color: #04110d;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-decoration: none;
+}
+
+.ex-vaultline .chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 1.35rem 1.5rem;
+  border-bottom: 1px solid var(--vl-rule);
+}
+
+.ex-vaultline .wordmark {
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.ex-vaultline .chrome nav {
+  display: flex;
+  gap: 1.35rem;
+  font-size: 0.85rem;
+  color: var(--vl-dim);
+}
+
+.ex-vaultline .hero {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 4.5rem 1.5rem 3rem;
+}
+
+.ex-vaultline .hero h1 {
+  font-size: clamp(2.1rem, 5.5vw, 3.4rem);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  font-weight: 700;
+  margin: 0 0 1rem;
+  max-width: 18ch;
+  text-wrap: balance;
+}
+
+.ex-vaultline .hero .sub {
+  color: var(--vl-dim);
+  font-size: 1.05rem;
+  margin: 0 0 1.75rem;
+  max-width: 52ch;
+  text-wrap: pretty;
+}
+
+.ex-vaultline .cta {
+  display: inline-block;
+  padding: 0.6rem 1.25rem;
+  border: 1px solid var(--vl-signal);
+  border-radius: 3px;
+  color: var(--vl-signal);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.ex-vaultline .stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 1px;
+  margin: 3.5rem 0 0;
+  background: var(--vl-rule);
+  border: 1px solid var(--vl-rule);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ex-vaultline .stats > div {
+  background: #0b100e;
+  padding: 1.05rem 1.15rem;
+}
+
+.ex-vaultline .stats dt {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--vl-dim);
+  margin-bottom: 0.4rem;
+}
+
+.ex-vaultline .stats dd {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ex-vaultline .strip {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 2.75rem 1.5rem 0;
+}
+
+.ex-vaultline .strip h2 {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--vl-dim);
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+.ex-vaultline .logos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1px;
+  background: var(--vl-rule);
+  border: 1px solid var(--vl-rule);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ex-vaultline .logos > * {
+  background: #0b100e;
+  padding: 1.4rem 1rem;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--vl-ink);
+  text-decoration: none;
+}
+
+.ex-vaultline .eco {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.85rem;
+}
+
+.ex-vaultline .eco > * {
+  padding: 1.35rem;
+  border: 1px solid var(--vl-rule);
+  border-radius: 4px;
+  background: #0b100e;
+  font-size: 0.95rem;
+  color: var(--vl-ink);
+  text-decoration: none;
+}
+
+.ex-vaultline .audit {
+  max-width: 62rem;
+  margin: 2.75rem auto 0;
+  padding: 0 1.5rem;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--vl-dim);
+}
+
+.ex-vaultline a {
+  color: var(--vl-signal);
+}
+
+.ex-vaultline .announce,
+.ex-vaultline .logos > a,
+.ex-vaultline .eco > a {
+  color: inherit;
+}
+
+.ex-vaultline .ex-foot {
+  color: var(--vl-dim);
+}

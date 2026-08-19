@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "chainId": 46630,
+  "sites": {
+    "dispatch": "0xE0d1cF918a53eB92Ec672fa93530601ef4758Aa7",
+    "devconf": "0xB1A7262F3eD2e54F4d950c5Ae76A24D726156932",
+    "remoteroles": "0xa7aea56116E6d478B501E2d75828A286e9E7C489",
+    "vaultline": "0x67E2A12B023c7715Ae98ea30563Bb86BEE57D89a"
+  }
+}

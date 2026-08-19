@@ -1,0 +1,51 @@
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+# Own submodules as of the repo split (2026-08-18). Previously borrowed @tinaw/contracts' lib/;
+# that coupling is gone along with the shared repo.
+libs = ["lib"]
+solc = "0.8.30"
+
+# SlotSite is the clone TARGET, so its runtime size is paid once per chain rather than per site.
+# Unlike TinawSlotsV2 it is nowhere near EIP-170, so this optimizes for RUNTIME GAS (runs = 200)
+# rather than for size. Revisit only if `forge build --sizes` starts approaching 24,576.
+optimizer = true
+optimizer_runs = 200
+
+# via_ir stays OFF. Inherited from @tinaw/contracts, but RE-TESTED on this codebase 2026-08-18 and
+# disqualified for a sharper reason than the one recorded there.
+#
+# Under via_ir the v2 skeleton drops 24,341 -> 20,383 B, which is a real prize, and 125/126 tests
+# pass INCLUDING the full 3,024-vector parity harness and the invariant suite. So the "pricing
+# diverges" objection does not reproduce here.
+#
+# What does reproduce: via_ir CACHES THE TIMESTAMP OPCODE across an external call, so a second
+# `vm.warp` in one test function is silently ignored. Proven by test/architecture/ — and hoisting
+# `block.timestamp` into a local does NOT help; both forms fail. On a real chain block.timestamp is
+# genuinely constant within a transaction, so the optimization is legal and vm.warp is the fiction
+# it breaks. But the consequence is that the entire time-dependent test surface -- reversion over
+# weeks, cooldowns, rental expiry, floor rate limits, term extension -- cannot be exercised against
+# the bytecode we would ship. Testing under legacy and shipping via_ir means testing something other
+# than what is deployed, which is the wrong trade for a frozen contract holding other people's money.
+#
+# So size has to come from architecture, not the compiler. See PROTOCOL-SPEC §8.
+via_ir = false
+
+# The parity suite compares against v1's frozen, mainnet-deployed `Pricing.sol`, now VENDORED at
+# test/reference/PricingFrozen.sol rather than read across a repo boundary. Vendored on purpose:
+# the point of the reference is that it is frozen, and a pinned copy is more frozen, not less.
+# No allow_paths grant is needed now that it lives inside the package.
+
+# GenPriceVectors.s.sol writes the parity grid to out/price-vectors.jsonl, which the TypeScript
+# twin's test reads. Read-write on ./out only — a generator must never be able to reach the sources
+# it is generating vectors from.
+fs_permissions = [{ access = "read-write", path = "./out" }]
+
+[fmt]
+line_length = 118
+# Matches the house style already in packages/contracts (`import { Pricing } from ...`), which has
+# no [fmt] section of its own and so never agreed with forge's defaults. Setting it here means
+# `forge fmt` is safe to run on this package rather than being a 400-line reformat waiting to
+# happen.
+bracket_spacing = true

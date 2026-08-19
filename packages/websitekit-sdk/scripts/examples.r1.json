@@ -1,0 +1,12 @@
+{
+  "//": "The first v2-generation example boards, cloned from implementation 0xE6a15a21e6F10E6F65E4D9bCe5563eC36F941F16 (no availability flag). Superseded 2026-08-19 by the availability revision \u2014 the SlotView/slotOf ABI changed, so this SDK can no longer read them. Kept as provenance.",
+  "version": 2,
+  "chainId": 46630,
+  "superseded": true,
+  "sites": {
+    "dispatch": "0x34d45D8cA6530D4b42CcE4155F906Ba79B8AadDe",
+    "devconf": "0x3235b0482f0e5BE7a3f72c5f529288586D190A0e",
+    "remoteroles": "0xAc23DBa44852C7B2cF5a3855E5f554613c7E73dd",
+    "vaultline": "0x214BE6cfC4a91313cdB2A66eb2Cb3fe65f4c8571"
+  }
+}

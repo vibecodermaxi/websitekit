@@ -1,0 +1,370 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "implementation_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "rentalsLib_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "createSite",
+    "inputs": [
+      {
+        "name": "cfg",
+        "type": "tuple",
+        "internalType": "struct SlotSite.SiteConfig",
+        "components": [
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "baseTokenURI",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "treasury",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "settlementToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "takeBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "reversionBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxReversionWeeks",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "cooldownSecs",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "defaultFloor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "floorDeltaBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "floorChangeCooldown",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxAskBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minRentBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "siteRentBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxRentalTerm",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "openRegistration",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "royaltyBps",
+            "type": "uint96",
+            "internalType": "uint96"
+          }
+        ]
+      },
+      {
+        "name": "keys",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
+        "name": "floors",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "site",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "createSiteFor",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "cfg",
+        "type": "tuple",
+        "internalType": "struct SlotSite.SiteConfig",
+        "components": [
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "baseTokenURI",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "treasury",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "settlementToken",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "takeBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "payoutBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "reversionBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxReversionWeeks",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "cooldownSecs",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "defaultFloor",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "floorDeltaBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "floorChangeCooldown",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxAskBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "minRentBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "siteRentBps",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxRentalTerm",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "openRegistration",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "royaltyBps",
+            "type": "uint96",
+            "internalType": "uint96"
+          }
+        ]
+      },
+      {
+        "name": "keys",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
+        "name": "floors",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "site",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "implementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "rentalsLib",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "rentalsLibCodehash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "SiteCreated",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "site",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "creator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "FailedDeployment",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": [
+      {
+        "name": "balance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "needed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "LibraryHasNoCode",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  }
+]

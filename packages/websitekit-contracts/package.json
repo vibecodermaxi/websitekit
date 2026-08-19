@@ -1,0 +1,10 @@
+{
+  "name": "@websitekit/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test --threads 1",
+    "lint": "echo 'solidity lints via forge fmt --check — no-op for pnpm -r'"
+  }
+}

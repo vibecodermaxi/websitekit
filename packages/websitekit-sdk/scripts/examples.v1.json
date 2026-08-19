@@ -1,0 +1,11 @@
+{
+  "//": "The v1 example boards, kept as a record. These clones are of the deleted v1 implementation and nothing in this package can read them; see src/addresses.ts. Superseded by examples.json, which carries a version field precisely so this file can never be mistaken for the current one again.",
+  "version": 1,
+  "chainId": 46630,
+  "sites": {
+    "dispatch": "0x895Fb4Ba710b0f495983A582b5c9013ccC33736c",
+    "devconf": "0xA7f8Dba26F82cc1deD9a63F28932eC87128834F0",
+    "remoteroles": "0x8c0d776ece615Ba01bE5038b95aA9Df5F3411f99",
+    "vaultline": "0xE41addf32313915F98b6cE5c63B6db8d0D6B092e"
+  }
+}
