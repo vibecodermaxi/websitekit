@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { DOC_PAGES, docFor, renderDoc } from '../../../lib/docs';
+import { DOC_NAV, DOC_PAGES, docFor, renderDoc } from '../../../lib/docs';
 
 /**
- * A documentation page, rendered from the markdown in `docs/websitekit/` at build time.
+ * A documentation page, rendered from the markdown in `docs/` at build time.
  *
  * Fully static — the markdown is read during the build and baked into the output, so there is no
  * filesystem access on the request path in production.
@@ -37,7 +37,7 @@ export default async function DocPageRoute({ params }: { params: Promise<{ slug:
             websitekit
           </Link>
           <nav>
-            {DOC_PAGES.map((other) => (
+            {DOC_NAV.map((other) => (
               <Link
                 key={other.slug}
                 href={`/docs/${other.slug}`}

@@ -1437,3 +1437,143 @@ img {
 .ex-vaultline .ex-foot {
   color: var(--vl-dim);
 }
+
+/* ---------------------------------------------------------------------------
+   Install block — the packages, on the page that argues for them.
+   Deliberately plain: a command, what it does, and the three names. The site
+   had no outbound link at all before this, so the job here is to be findable,
+   not decorative.
+   --------------------------------------------------------------------------- */
+
+.install {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 1.25rem 1.375rem;
+  margin: 0 0 2.5rem;
+}
+
+.install-cmd {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  color: var(--ink);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.install-note {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--muted);
+  margin: 0.625rem 0 0;
+}
+
+.install-pkgs {
+  list-style: none;
+  margin: 1.125rem 0 0;
+  padding: 1.125rem 0 0;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 0.625rem;
+}
+
+.install-pkgs li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: baseline;
+  font-size: 0.82rem;
+}
+
+.install-pkgs a {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.install-pkgs a:hover {
+  text-decoration: underline;
+}
+
+.install-pkgs span {
+  color: var(--muted);
+  flex: 1 1 16rem;
+}
+
+/* ---------------------------------------------------------------------------
+   API reference — generated from the SDK's types, so this styles a shape that
+   is produced rather than authored: name, kind, signature, one-line summary.
+   Signatures can be long (an `as const` ABI runs to tens of thousands of
+   characters and is truncated upstream), so they scroll inside their own box
+   rather than widening the page.
+   --------------------------------------------------------------------------- */
+
+.api-blurb {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin: -0.25rem 0 1.5rem;
+}
+
+.api-list {
+  margin: 0 0 2.5rem;
+}
+
+.api-item {
+  border-top: 1px solid var(--rule);
+  padding: 1.125rem 0;
+  scroll-margin-top: 1.5rem;
+}
+
+.api-item dt {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+  margin: 0 0 0.5rem;
+}
+
+.api-name {
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.api-kind {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.05rem 0.35rem;
+}
+
+.api-item dd {
+  margin: 0;
+}
+
+.api-sig {
+  margin: 0 0 0.5rem;
+  padding: 0.625rem 0.75rem;
+  background: var(--surface-2);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.api-sig code {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink);
+  white-space: pre;
+}
+
+.api-doc {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}

@@ -1,7 +1,8 @@
 import Link from 'next/link';
 
 import { EXAMPLES } from '../lib/sites';
-import { DOC_PAGES } from '../lib/docs';
+import { DOC_NAV, DOC_PAGES } from '../lib/docs';
+import { CREATE_COMMAND, GITHUB_URL, PACKAGES } from '../lib/links';
 
 export const metadata = {
   title: 'websitekit — the issuance and settlement layer for tokenized page inventory',
@@ -15,12 +16,14 @@ export default function Home() {
           <div className="home-nav">
             <h1>websitekit</h1>
             <nav>
-              {DOC_PAGES.map((page) => (
+              {DOC_NAV.map((page) => (
                 <Link key={page.slug} href={`/docs/${page.slug}`}>
                   {page.title}
                 </Link>
               ))}
               <a href="#examples">Examples</a>
+              <a href={GITHUB_URL}>GitHub &#8599;</a>
+              <a href={PACKAGES[0].url}>npm &#8599;</a>
             </nav>
           </div>
           <p className="lede">The issuance and settlement layer for tokenized page inventory.</p>
@@ -53,41 +56,68 @@ export default function Home() {
               </span>
             </li>
             <li>
-              <b>Tenant — primitive only</b>
+              <b>Tenant — ships</b>
               <span>
-                Writes into a position they do not own, under a revocable grant. The on-chain
-                primitive ships; discovery and pricing above it do not.
+                Rents write access for a term without the holder giving up the asset. Priced terms,
+                escrowed prepayment, rent streamed by the second, and a fee split — all on chain. A
+                take clears the listing but <em>preserves</em> the tenancy.
               </span>
             </li>
             <li>
               <b>Terms are underwritable</b>
               <span>
-                Economics freeze at <code>createSite</code> — no setter, no admin key, no timelock.
-                An investor reads them once and knows the issuer cannot dilute them.
+                Take economics are free until the first position is claimed, then <em>ratchet</em>:
+                they may only move where they cannot strand a holder — takes down, payout up,
+                reversion slower. No admin key, no timelock. An investor reads them once and knows
+                which way they can go.
               </span>
             </li>
           </ul>
 
           <p className="sub stack-note">
-            Demand routing, rental auction and measurement are companion products and are not built.
-            The SDK is the first layer of that stack.
+            Issuance, the secondary market and the rental market are built and on chain. Demand
+            routing, an auction over tenancies, and measurement are companion products and are not.
           </p>
+
+          <div className="install">
+            <code className="install-cmd">{CREATE_COMMAND}</code>
+            <p className="install-note">
+              Runs with no credentials — the scaffold renders a live, already-traded board on
+              Robinhood Chain testnet.
+            </p>
+            <ul className="install-pkgs">
+              {PACKAGES.map((pkg) => (
+                <li key={pkg.name}>
+                  <a href={pkg.url}>{pkg.name}</a>
+                  <span>{pkg.blurb}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </header>
 
         <h2>Documentation</h2>
         <p className="section-note">
-          Rendered from the markdown in <code>docs/websitekit/</code>, so the site and the repository
-          cannot drift apart.
+          Rendered from the markdown in <code>docs/</code>, so the site and the repository cannot
+          drift apart. The API reference is generated from the SDK&rsquo;s own types.
         </p>
 
         <div className="cards docs-cards">
           {DOC_PAGES.map((page) => (
             <Link key={page.slug} className="card" href={`/docs/${page.slug}`}>
-              <span className="kicker">docs/websitekit/{page.file}</span>
+              <span className="kicker">docs/{page.file}</span>
               <strong>{page.title}</strong>
               <p>{page.blurb}</p>
             </Link>
           ))}
+          <Link className="card" href="/docs/api">
+            <span className="kicker">generated from the types</span>
+            <strong>API reference</strong>
+            <p>
+              Every export of <code>@websitekit/sdk</code>, read out of the package&rsquo;s own type
+              declarations at build time — so it cannot drift from the code it documents.
+            </p>
+          </Link>
         </div>
 
         <h2 id="examples">Reference inventory configurations</h2>
@@ -113,7 +143,10 @@ export default function Home() {
 
       <div className="wrap">
         <footer className="bottom">
-          Robinhood Chain testnet (46630) · unaudited · mainnet is gated on an audit
+          Robinhood Chain testnet (46630) · unaudited, and no audit is planned · experimental
+          software ·{' '}
+          <a href={GITHUB_URL}>GitHub</a> ·{' '}
+          <a href={PACKAGES[1].url}>npm</a>
         </footer>
       </div>
     </div>

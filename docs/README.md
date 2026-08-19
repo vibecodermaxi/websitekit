@@ -481,10 +481,10 @@ metrics would be selling the right to misstate them. Issue attention; never issu
 
 | | address |
 |---|---|
-| The Weekly Dispatch | [`0x895Fb4Ba710b0f495983A582b5c9013ccC33736c`](https://explorer.testnet.chain.robinhood.com/address/0x895Fb4Ba710b0f495983A582b5c9013ccC33736c) |
-| DevConf Autumn | [`0xA7f8Dba26F82cc1deD9a63F28932eC87128834F0`](https://explorer.testnet.chain.robinhood.com/address/0xA7f8Dba26F82cc1deD9a63F28932eC87128834F0) |
-| Remote Roles | [`0x8c0d776ece615Ba01bE5038b95aA9Df5F3411f99`](https://explorer.testnet.chain.robinhood.com/address/0x8c0d776ece615Ba01bE5038b95aA9Df5F3411f99) |
-| Vaultline | [`0xE41addf32313915F98b6cE5c63B6db8d0D6B092e`](https://explorer.testnet.chain.robinhood.com/address/0xE41addf32313915F98b6cE5c63B6db8d0D6B092e) |
+| The Weekly Dispatch | [`0xE0d1cF918a53eB92Ec672fa93530601ef4758Aa7`](https://explorer.testnet.chain.robinhood.com/address/0xE0d1cF918a53eB92Ec672fa93530601ef4758Aa7) |
+| DevConf Autumn | [`0xB1A7262F3eD2e54F4d950c5Ae76A24D726156932`](https://explorer.testnet.chain.robinhood.com/address/0xB1A7262F3eD2e54F4d950c5Ae76A24D726156932) |
+| Remote Roles | [`0xa7aea56116E6d478B501E2d75828A286e9E7C489`](https://explorer.testnet.chain.robinhood.com/address/0xa7aea56116E6d478B501E2d75828A286e9E7C489) |
+| Vaultline | [`0x67E2A12B023c7715Ae98ea30563Bb86BEE57D89a`](https://explorer.testnet.chain.robinhood.com/address/0x67E2A12B023c7715Ae98ea30563Bb86BEE57D89a) |
 
 Exported as `EXAMPLE_SITES` from `@websitekit/sdk` and rendered as live pages by `apps/websitekit-site`,
 with per-position revenue computed through `computeSplit` from each board's on-chain terms.

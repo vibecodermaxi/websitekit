@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Marked } from 'marked';
+import { DEMO_SITE_V1, EXAMPLE_SITES_V1 } from '@websitekit/sdk';
 
 /**
  * Renders the markdown in the repo's `docs/` as pages on this site.
@@ -62,6 +63,18 @@ export const DOC_PAGES: DocPage[] = [
  * The reference is now the TypeScript types plus each package's README, both of which fail loudly
  * when they drift. If a narrative SDK page comes back, it should be generated, not written.
  */
+
+/**
+ * What the docs nav shows, markdown pages plus the generated ones.
+ *
+ * `DOC_PAGES` cannot carry `/docs/api`: it is a list of markdown files, and the API reference has no
+ * file — it is read out of the SDK's types at build time. Keeping one nav list means adding a page
+ * cannot leave the header pointing at three of four pages.
+ */
+export const DOC_NAV: { slug: string; title: string }[] = [
+  ...DOC_PAGES.map((page) => ({ slug: page.slug, title: page.title })),
+  { slug: 'api', title: 'API reference' },
+];
 
 export function docFor(slug: string): DocPage | undefined {
   return DOC_PAGES.find((page) => page.slug === slug);
@@ -125,6 +138,38 @@ function assertNoRepoRelativeLinks(html: string, file: string): void {
   }
 }
 
+/**
+ * **Fails the build if a published document links a superseded board.**
+ *
+ * The guide's four "see them on chain" links pointed at the v1 example boards for the whole life of
+ * this site — clones of an implementation that has since been deleted, which nothing in this
+ * codebase can read. They were correct when written and rotted silently, because an address is
+ * opaque: nothing about `0x895Fb4Ba…` says which generation it belongs to, and it renders and links
+ * exactly as well when it is wrong.
+ *
+ * The SDK keeps the superseded addresses as provenance, which is what makes this checkable at all —
+ * every retired board is a named constant, so the check is a set membership rather than a guess.
+ */
+const SUPERSEDED_ADDRESSES = new Map<string, string>([
+  ...Object.entries(EXAMPLE_SITES_V1).map(
+    ([name, address]) => [address.toLowerCase(), `EXAMPLE_SITES_V1.${name}`] as const,
+  ),
+  [DEMO_SITE_V1.toLowerCase(), 'DEMO_SITE_V1'],
+]);
+
+function assertNoSupersededAddresses(html: string, file: string): void {
+  const hits = [...html.matchAll(/0x[a-fA-F0-9]{40}/g)]
+    .map((match) => match[0])
+    .filter((address) => SUPERSEDED_ADDRESSES.has(address.toLowerCase()))
+    .map((address) => `${address} (${SUPERSEDED_ADDRESSES.get(address.toLowerCase())})`);
+  if (hits.length) {
+    throw new Error(
+      `${file} links ${new Set(hits).size} superseded board(s): ${[...new Set(hits)].join(', ')}. ` +
+        `These are retired generations and cannot be read by this SDK — use the current constants.`,
+    );
+  }
+}
+
 export async function renderDoc(page: DocPage): Promise<{ html: string; headings: Heading[] }> {
   const source = await readFile(path.join(DOCS_DIR, page.file), 'utf-8');
   const headings: Heading[] = [];
@@ -160,5 +205,6 @@ export async function renderDoc(page: DocPage): Promise<{ html: string; headings
 
   const html = rewriteLinks(await marked.parse(source));
   assertNoRepoRelativeLinks(html, page.file);
+  assertNoSupersededAddresses(html, page.file);
   return { html, headings };
 }
