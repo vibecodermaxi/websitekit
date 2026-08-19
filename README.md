@@ -98,4 +98,4 @@ that had already changed, because it was the only document with no compiler behi
 
 ## License
 
-MIT © Puranjay Singh
+MIT © websitekit

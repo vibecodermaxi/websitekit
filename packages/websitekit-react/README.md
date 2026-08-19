@@ -39,4 +39,4 @@ Every export here is a client component or hook.
 
 Testnet only, unaudited, experimental.
 
-MIT © Puranjay Singh
+MIT © websitekit

@@ -43,4 +43,4 @@ pnpm deploy:site   # needs a funded testnet key in .env
 
 Testnet only, unaudited, experimental.
 
-MIT © Puranjay Singh
+MIT © websitekit

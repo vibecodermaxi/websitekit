@@ -61,4 +61,4 @@ This SDK never holds a key. Every `build*` returns a request object your wallet 
 Testnet only, unaudited, and the contracts are **not upgradeable** — a site is a clone frozen to the
 implementation it was created from. Experimental software.
 
-MIT © Puranjay Singh
+MIT © websitekit
