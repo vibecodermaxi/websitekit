@@ -49,6 +49,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "prepack": "tsup",
     "test": "vitest run --passWithNoTests",
     "lint": "tsc --noEmit && tsc -p tsconfig.scripts.json",
     "sync:abi": "node scripts/sync-abi.mjs"

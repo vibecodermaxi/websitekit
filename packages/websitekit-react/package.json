@@ -48,6 +48,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "prepack": "tsup",
     "test": "vitest run --passWithNoTests",
     "lint": "tsc --noEmit"
   },
