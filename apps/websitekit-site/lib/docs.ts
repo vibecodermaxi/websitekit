@@ -42,6 +42,15 @@ export const DOC_PAGES: DocPage[] = [
     title: 'Guide',
     blurb: 'The model, the layers, and every mechanism — issuance, secondary market, tenancy, terms of issue.',
   },
+  {
+    // Not optional. The shipping source carries **192 `§` references** into this document and five
+    // contracts name it outright, so a developer reading the code to decide whether to trust it is
+    // sent here. Without a page, every one of those is a pointer into a file on GitHub.
+    slug: 'protocol-spec',
+    file: 'PROTOCOL-SPEC.md',
+    title: 'Protocol spec',
+    blurb: 'The contract design: state, pricing, tenancy, terms of issue, and why every parameter is what it is.',
+  },
 ];
 
 /**
@@ -73,19 +82,47 @@ function slugify(text: string): string {
     .replace(/\s+/g, '-');
 }
 
+/** Where a repo-relative link to source should point once it is on the web. */
+const REPO_BLOB = 'https://github.com/vibecodermaxi/websitekit/blob/main/';
+
 /**
  * Rewrites the repo-relative links the markdown carries so they resolve on the web.
  *
- * `./sdk.md` is correct in a repo and a 404 on a site. The spec and the handoff are not published,
- * so links to them are flattened to plain text rather than left as dead anchors — a link that goes
- * nowhere is worse than no link, because the reader spends a click finding out.
+ * `./PROTOCOL-SPEC.md` is correct in a repo and a 404 on a site. Documents that are published get
+ * their route; source files get a link into the public repo; documents that are deliberately NOT
+ * published are flattened to plain text rather than left as dead anchors — a link that goes nowhere
+ * is worse than no link, because the reader spends a click finding out.
  */
 function rewriteLinks(html: string): string {
   return html
-    .replace(/href="\.\/sdk\.md"/g, 'href="/docs/sdk"')
     .replace(/href="\.\/README\.md"/g, 'href="/docs/guide"')
-    .replace(/<a href="\.\.\/websitekit-sdk-spec\.md">([^<]*)<\/a>/g, '<span class="unlinked">$1</span>')
-    .replace(/<a href="\.\/STATUS\.md">([^<]*)<\/a>/g, '<span class="unlinked">$1</span>');
+    .replace(/href="\.\/PROTOCOL-SPEC\.md"/g, 'href="/docs/protocol-spec"')
+    // Private by decision — see the note on DOC_PAGES above. The link text is matched lazily rather
+    // than as `[^<]*`, because markdown like [`PIVOT-MAP.md`](./PIVOT-MAP.md) renders its label as a
+    // nested <code>, and a character class that stops at `<` never reaches the closing tag.
+    .replace(/<a href="\.\/(PIVOT-MAP|STATE|STATUS|NEW-REPO-HANDOFF)\.md">([\s\S]*?)<\/a>/g,
+      '<span class="unlinked">$2</span>')
+    // `../packages/…/foo.ts` and friends: real files, just not on this host.
+    .replace(/href="\.\.\/([^"]+)"/g, `href="${REPO_BLOB}$1"`);
+}
+
+/**
+ * **Fails the build on any repo-relative link that survived the rewrite.**
+ *
+ * The rules above are a list, and a list rots: `./sdk.md` had a rule long after the file was
+ * deleted, while `./PROTOCOL-SPEC.md` — which the guide actually links — had none, and rendered as a
+ * dead `href="./PROTOCOL-SPEC.md"` on the live site. Neither is visible in dev, because in a repo
+ * both paths are correct. This is the check that makes the omission loud: a missing rule is now a
+ * failed `next build`, not a 404 somebody else finds.
+ */
+function assertNoRepoRelativeLinks(html: string, file: string): void {
+  const leftovers = [...html.matchAll(/href="(\.[^"]*)"/g)].map((match) => match[1]);
+  if (leftovers.length) {
+    throw new Error(
+      `${file}: ${leftovers.length} repo-relative link(s) survived rewriteLinks and would 404 on the ` +
+        `site: ${[...new Set(leftovers)].join(', ')}. Add a rule in rewriteLinks.`,
+    );
+  }
 }
 
 export async function renderDoc(page: DocPage): Promise<{ html: string; headings: Heading[] }> {
@@ -122,5 +159,6 @@ export async function renderDoc(page: DocPage): Promise<{ html: string; headings
   });
 
   const html = rewriteLinks(await marked.parse(source));
+  assertNoRepoRelativeLinks(html, page.file);
   return { html, headings };
 }
