@@ -18,7 +18,9 @@
     "build:contracts": "cd packages/websitekit-contracts && forge build",
     "test": "pnpm build:contracts && pnpm -r test",
     "test:contracts": "cd packages/websitekit-contracts && forge test --threads 1",
-    "sizes": "cd packages/websitekit-contracts && forge build --sizes"
+    "sizes": "cd packages/websitekit-contracts && forge build --sizes",
+    "verify:pack": "node scripts/verify-packed.mjs",
+    "release": "node scripts/verify-packed.mjs && pnpm -r publish --access public"
   },
   "devDependencies": {
     "tsup": "^8.5.1",

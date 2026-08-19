@@ -1,6 +1,6 @@
 {
   "name": "@websitekit/react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React bindings for websitekit \u2014 <Slot>, useSlot, useBuy and the default buy dialog.",
   "license": "MIT",
   "repository": {
@@ -49,6 +49,7 @@
   "scripts": {
     "build": "tsup",
     "prepack": "tsup",
+    "prepublishOnly": "node ../../scripts/assert-pnpm-publish.mjs",
     "test": "vitest run --passWithNoTests",
     "lint": "tsc --noEmit"
   },

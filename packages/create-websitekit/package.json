@@ -39,6 +39,7 @@
   "scripts": {
     "build": "tsup",
     "prepack": "tsup",
+    "prepublishOnly": "node ../../scripts/assert-pnpm-publish.mjs",
     "test": "vitest run --passWithNoTests",
     "lint": "tsc --noEmit"
   },
