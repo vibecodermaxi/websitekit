@@ -110,6 +110,15 @@ export default function Home() {
               <p>{page.blurb}</p>
             </Link>
           ))}
+          <Link className="card" href="/docs/v1-to-v2">
+            <span className="kicker">computed diff</span>
+            <strong>v1 &rarr; v2</strong>
+            <p>
+              Every difference between the two SDK generations, diffed from a frozen snapshot of
+              v1&rsquo;s surface against v2&rsquo;s live types. Nothing was removed; 16 signatures
+              changed.
+            </p>
+          </Link>
           <Link className="card" href="/docs/api">
             <span className="kicker">generated from the types</span>
             <strong>API reference</strong>

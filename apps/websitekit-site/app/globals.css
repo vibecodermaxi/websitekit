@@ -1577,3 +1577,85 @@ img {
   font-size: 0.88rem;
   color: var(--muted);
 }
+
+/* ---------------------------------------------------------------------------
+   v1 → v2 — a computed diff, so this styles counts and side-by-side signatures.
+   The two sides stack on a narrow screen rather than shrinking to unreadable
+   columns; a signature is the one thing on the page that cannot be skimmed.
+   --------------------------------------------------------------------------- */
+
+.mig-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 2rem 0 2.5rem;
+}
+
+.mig-stats div {
+  background: var(--surface);
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.mig-stats strong {
+  font-family: var(--mono);
+  font-size: 1.5rem;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.mig-stats span {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.mig-note {
+  margin-bottom: 0.75rem !important;
+}
+
+.mig-diff {
+  display: grid;
+  gap: 0.5rem;
+}
+
+@media (min-width: 46rem) {
+  .mig-diff {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.mig-side {
+  min-width: 0;
+}
+
+.mig-label {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+}
+
+.mig-v2 {
+  color: var(--accent);
+}
+
+.mig-count {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.05rem 0.35rem;
+  vertical-align: middle;
+}

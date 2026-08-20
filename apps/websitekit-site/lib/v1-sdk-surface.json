@@ -1,0 +1,379 @@
+{
+  "//": "FROZEN SNAPSHOT of @websitekit/sdk's public surface at the last v1 commit. Generated once from git history at 84c88d3^ (the commit before \"Port the SDK to v2\") and never edited by hand. The v1 sources themselves are deleted; this is what makes the v1-to-v2 page computable rather than remembered.",
+  "generatedFrom": "84c88d3^",
+  "exportCount": 93,
+  "symbols": {
+    "BPS_DENOMINATOR": {
+      "kind": "const",
+      "signature": "10000n"
+    },
+    "SECONDS_PER_WEEK": {
+      "kind": "const",
+      "signature": "604800n"
+    },
+    "PricingOverflowError": {
+      "kind": "class",
+      "signature": "typeof PricingOverflowError"
+    },
+    "computeTakePrice": {
+      "kind": "function",
+      "signature": "(lastPrice: bigint, basePrice: bigint, elapsedWeeks: bigint, decayBps: bigint, takeBps: bigint, maxDecayWeeks: bigint) => TakeQuote"
+    },
+    "computeSplit": {
+      "kind": "function",
+      "signature": "(effectiveFloor: bigint, price: bigint, isUnclaimed: boolean, payoutBps: bigint, protocolBps: bigint) => Split"
+    },
+    "computeElapsedWeeks": {
+      "kind": "function",
+      "signature": "(nowTs: bigint, lastPurchaseTs: bigint) => bigint"
+    },
+    "computeBuyBreakdown": {
+      "kind": "function",
+      "signature": "(lastPrice: bigint, basePrice: bigint, elapsedWeeks: bigint, economics: SiteEconomics, isUnclaimed: boolean) => BuyBreakdown"
+    },
+    "TakeQuote": {
+      "kind": "interface",
+      "signature": "interface TakeQuote { /** What a taker pays to displace the current owner. */ price: bigint; /** `max(decayed, basePrice)` — what a first claim pays, and what the whole split is keyed to. */ effectiveFloor: bigint; }"
+    },
+    "Split": {
+      "kind": "interface",
+      "signature": "interface Split { /** The effective floor on a claim, the take price on a take. This is what `lastPrice` records. */ charged: bigint; /** To the displaced owner. `0n` on a claim; there is nobody to pay. */ payout: bigint; /** To the protocol treasury, on every buy including claims. */ protocolCut: bigint; /** Whatever remains, to the site. */ siteCut: bigint; }"
+    },
+    "SiteEconomics": {
+      "kind": "interface",
+      "signature": "interface SiteEconomics { takeBps: bigint; payoutBps: bigint; decayBps: bigint; maxDecayWeeks: bigint; protocolBps: bigint; }"
+    },
+    "BuyBreakdown": {
+      "kind": "interface",
+      "signature": "interface BuyBreakdown extends TakeQuote, Split {}"
+    },
+    "resolveReversionBase": {
+      "kind": "function",
+      "signature": "(askFloor: bigint, lastPrice: bigint) => bigint"
+    },
+    "askCeiling": {
+      "kind": "function",
+      "signature": "(lastPrice: bigint, basePrice: bigint, maxAskBps: bigint) => bigint"
+    },
+    "SECONDS_PER_DAY": {
+      "kind": "const",
+      "signature": "86400n"
+    },
+    "MIN_RENTAL_DURATION": {
+      "kind": "const",
+      "signature": "3600n"
+    },
+    "accruedOf": {
+      "kind": "function",
+      "signature": "(prepaid: bigint, start: bigint, expiry: bigint, nowTs: bigint) => bigint"
+    },
+    "accrual": {
+      "kind": "function",
+      "signature": "(prepaid: bigint, start: bigint, expiry: bigint, nowTs: bigint) => Accrual"
+    },
+    "rentCost": {
+      "kind": "function",
+      "signature": "(ratePerDay: bigint, durationSecs: bigint) => bigint"
+    },
+    "rentSplit": {
+      "kind": "function",
+      "signature": "(cost: bigint, protocolRentBps: bigint, feeBps: bigint) => RentSplit"
+    },
+    "quoteRent": {
+      "kind": "function",
+      "signature": "(ratePerDay: bigint, durationSecs: bigint, protocolRentBps: bigint, feeBps: bigint) => RentQuote"
+    },
+    "Accrual": {
+      "kind": "interface",
+      "signature": "interface Accrual { /** Rent the owner has earned so far, whether or not it has been claimed. */ accrued: bigint; /** * The part of the escrow not yet earned — **what a buyer inherits.** * * §2.4.2 calls surfacing this the single highest-value client change in the release: without it an * encumbered position reads as unbuyable, when it is actually being sold at a discount to the * income stream it carries. Effective cost to a buyer is `takePrice - unaccrued`. */ unaccrued: bigint; }"
+    },
+    "RentSplit": {
+      "kind": "interface",
+      "signature": "interface RentSplit { /** To the protocol treasury. */ protocolCut: bigint; /** To the site's treasury, at the rate snapshotted on the listing when it was written. */ siteCut: bigint; /** Escrowed, and streamed to whoever owns the position as it accrues. */ net: bigint; }"
+    },
+    "RentQuote": {
+      "kind": "interface",
+      "signature": "interface RentQuote extends RentSplit { /** Gross, and what the tenant is actually charged. */ cost: bigint; }"
+    },
+    "SCHEME_VERSION": {
+      "kind": "const",
+      "signature": "1"
+    },
+    "ContentKind": {
+      "kind": "type",
+      "signature": "ContentKind = { Text: 1, Link: 2, Image: 3, Video: 4, } as const"
+    },
+    "SITE_DEFINED_KIND_MIN": {
+      "kind": "const",
+      "signature": "128"
+    },
+    "HEADER_BYTES": {
+      "kind": "const",
+      "signature": "2"
+    },
+    "MAX_OBJECT_BYTES": {
+      "kind": "const",
+      "signature": "1048576"
+    },
+    "ContentTooLargeError": {
+      "kind": "class",
+      "signature": "typeof ContentTooLargeError"
+    },
+    "MalformedContentError": {
+      "kind": "class",
+      "signature": "typeof MalformedContentError"
+    },
+    "encodeContent": {
+      "kind": "function",
+      "signature": "(kind: number, payload: Uint8Array) => EncodedContent"
+    },
+    "encodeText": {
+      "kind": "function",
+      "signature": "(text: string) => EncodedContent"
+    },
+    "encodeLink": {
+      "kind": "function",
+      "signature": "(url: string) => EncodedContent"
+    },
+    "encodeImage": {
+      "kind": "function",
+      "signature": "(bytes: Uint8Array) => EncodedContent"
+    },
+    "decodeContent": {
+      "kind": "function",
+      "signature": "(bytes: Uint8Array) => DecodedContent"
+    },
+    "readContent": {
+      "kind": "function",
+      "signature": "(bytes: Uint8Array, expectedHash: Hex) => ContentResult"
+    },
+    "contentHashToCid": {
+      "kind": "function",
+      "signature": "(hash: Hex) => string"
+    },
+    "cidToContentHash": {
+      "kind": "function",
+      "signature": "(cid: string) => Hex"
+    },
+    "EncodedContent": {
+      "kind": "interface",
+      "signature": "interface EncodedContent { /** The full object — this is what gets stored, and what the hash is taken over. */ bytes: Uint8Array; /** `sha256(bytes)`, the value written on-chain. */ hash: Hex; /** The same hash expressed as an IPFS CIDv1 raw block — the default read address. */ cid: string; }"
+    },
+    "DecodedContent": {
+      "kind": "interface",
+      "signature": "interface DecodedContent { schemeVersion: number; kind: number; payload: Uint8Array; }"
+    },
+    "ContentResult": {
+      "kind": "type",
+      "signature": "type ContentResult = | ({ ok: true } & DecodedContent) | { ok: false; reason: ContentFailure; schemeVersion?: number };"
+    },
+    "ContentFailure": {
+      "kind": "type",
+      "signature": "type ContentFailure = /** The bytes do not hash to what the chain says. Never render these. */ | 'hash-mismatch' /** Shorter than the header, or a kind of 0. */ | 'malformed' /** Verified, but written under a scheme this package does not know how to read. */ | 'unknown-version';"
+    },
+    "slotKey": {
+      "kind": "function",
+      "signature": "(key: string) => Hex"
+    },
+    "slotKeys": {
+      "kind": "function",
+      "signature": "(keys: readonly string[]) => Hex[]"
+    },
+    "slotTokenId": {
+      "kind": "function",
+      "signature": "(key: string) => bigint"
+    },
+    "assertValidSlotKey": {
+      "kind": "function",
+      "signature": "(key: string) => void"
+    },
+    "MAX_KEY_LENGTH": {
+      "kind": "const",
+      "signature": "128"
+    },
+    "InvalidSlotKeyError": {
+      "kind": "class",
+      "signature": "typeof InvalidSlotKeyError"
+    },
+    "SLOT_SITE_ABI": {
+      "kind": "const",
+      "signature": "Abi"
+    },
+    "readSlots": {
+      "kind": "function",
+      "signature": "(client: PublicClient, site: Address, keys: readonly string[]) => Promise<SlotState[]>"
+    },
+    "readSlot": {
+      "kind": "function",
+      "signature": "(client: PublicClient, site: Address, key: string) => Promise<SlotState>"
+    },
+    "readSiteTerms": {
+      "kind": "function",
+      "signature": "(client: PublicClient, site: Address, blockNumber?: bigint) => Promise<SiteTerms>"
+    },
+    "readEncumbrance": {
+      "kind": "function",
+      "signature": "(client: PublicClient, site: Address, key: string) => Promise<Hex>"
+    },
+    "readBuyContext": {
+      "kind": "function",
+      "signature": "(client: PublicClient, site: Address, key: string) => Promise<BuyContext>"
+    },
+    "readCanEdit": {
+      "kind": "function",
+      "signature": "(client: PublicClient, site: Address, key: string, account: Address) => Promise<boolean>"
+    },
+    "readPendingWithdrawal": {
+      "kind": "function",
+      "signature": "(client: PublicClient, site: Address, account: Address) => Promise<bigint>"
+    },
+    "SlotState": {
+      "kind": "interface",
+      "signature": "interface SlotState { /** The dotted key from the site's config, e.g. `hero.headline`. */ key: string; /** `keccak256(utf8(key))` — what the contract stores. */ keyHash: Hex; /** `null` when unclaimed, rather than the zero address. */ owner: Address | null; /** * `null` when the slot has never been edited. The zero hash is the contract's \"unset\" value and * would otherwise be handed to a fetcher that would 404 on it. */ contentHash: Hex | null; /** The site owner's configured floor. */ floor: bigint; /** What a first claim costs right now — `max(decayed, floor)`. */ effectiveFloor: bigint; /** What displacing the current owner costs right now. */ price: bigint; /** What the current owner actually paid. */ lastPrice: bigint; lastPurchaseTs: bigint; /** Bumped on every edit; what a client caches content against. */ version: number; takes: number; /** False for a key the site owner has not registered. Such a slot cannot be bought (§7.5). */ registered: boolean; /** Convenience for the overwhelmingly common branch. */ isUnclaimed: boolean; /** What THIS buyer would be charged — `effectiveFloor` on a claim, `price` on a take. */ charged: bigint; }"
+    },
+    "SiteTerms": {
+      "kind": "interface",
+      "signature": "interface SiteTerms { implementationVersion: bigint; takeBps: bigint; payoutBps: bigint; decayBps: bigint; maxDecayWeeks: bigint; cooldownSecs: bigint; protocolBps: bigint; paused: boolean; openRegistration: boolean; defaultFloor: bigint; treasury: Address; royaltyBps: bigint; }"
+    },
+    "BuyContext": {
+      "kind": "interface",
+      "signature": "interface BuyContext { slot: SlotState; expectedTerms: Hex; /** The chain's clock at `blockNumber` — NOT `Date.now()`. */ now: bigint; blockNumber: bigint; }"
+    },
+    "SLOT_FACTORY_ABI": {
+      "kind": "const",
+      "signature": "Abi"
+    },
+    "DEFAULT_DEADLINE_SECS": {
+      "kind": "const",
+      "signature": "300n"
+    },
+    "DEFAULT_SLIPPAGE_BPS": {
+      "kind": "const",
+      "signature": "100n"
+    },
+    "InvalidEconomicsError": {
+      "kind": "class",
+      "signature": "typeof InvalidEconomicsError"
+    },
+    "buildBuy": {
+      "kind": "function",
+      "signature": "(options: BuildBuyOptions) => CallRequest<\"buy\", [Hex, bigint, Hex, bigint]> | CallRequest<\"buyFor\", [Address, Hex, bigint, Hex, bigint]>"
+    },
+    "buildBuyFrom": {
+      "kind": "function",
+      "signature": "(site: Address, context: { slot: { key: string; charged: bigint; }; expectedTerms: Hex; now: bigint; }, options?: Pick<BuildBuyOptions, \"maxPrice\" | \"slippageBps\" | \"deadline\" | \"deadlineSecs\" | \"recipient\">) => CallRequest<\"buy\", [`0x${string}`, bigint, `0x${string}`, bigint]> | CallRequest<\"buyFor\", [`0x${string}`, `0x${string}`, bigint, `0x${string}`, bigint]>"
+    },
+    "buildEdit": {
+      "kind": "function",
+      "signature": "(site: Address, key: string, contentHash: Hex) => CallRequest<\"edit\", [Hex, Hex]>"
+    },
+    "buildSetEditor": {
+      "kind": "function",
+      "signature": "(site: Address, key: string, editor: Address) => CallRequest<\"setEditor\", [Hex, Address]>"
+    },
+    "buildSetEditorWithSig": {
+      "kind": "function",
+      "signature": "(site: Address, key: string, editor: Address, deadline: bigint, signature: Hex) => CallRequest<\"setEditorWithSig\", [Hex, Address, bigint, Hex]>"
+    },
+    "editorGrantTypedData": {
+      "kind": "function",
+      "signature": "(options: { site: Address; chainId: number; siteName: string; key: string; editor: Address; nonce: bigint; deadline: bigint; }) => { domain: { name: string; version: string; chainId: number; verifyingContract: `0x${string}`; }; types: { EditorGrant: { name: string; type: string; }[]; }; primaryType: \"EditorGrant\"; message: { key: `0x${string}`; editor: `0x${string}`; nonce: bigint; deadline: bigint; }; }"
+    },
+    "buildRegisterSlots": {
+      "kind": "function",
+      "signature": "(site: Address, slots: Readonly<Record<string, bigint>>) => CallRequest<\"registerSlots\", [Hex[], bigint[]]>"
+    },
+    "buildSetFloor": {
+      "kind": "function",
+      "signature": "(site: Address, key: string, floor: bigint) => CallRequest<\"setFloor\", [Hex, bigint]>"
+    },
+    "buildWithdrawFor": {
+      "kind": "function",
+      "signature": "(site: Address, account: Address) => CallRequest<\"withdrawFor\", [Address]>"
+    },
+    "buildCreateSite": {
+      "kind": "function",
+      "signature": "(options: BuildCreateSiteOptions) => CallRequest<\"createSite\", [SiteConfigTuple, Hex[], bigint[]]> | CallRequest<\"createSiteFor\", [Address, SiteConfigTuple, Hex[], bigint[]]>"
+    },
+    "CallRequest": {
+      "kind": "interface",
+      "signature": "interface CallRequest<TName extends string, TArgs extends readonly unknown[]> { address: Address; abi: Abi; functionName: TName; args: TArgs; value?: bigint; }"
+    },
+    "BuildBuyOptions": {
+      "kind": "interface",
+      "signature": "interface BuildBuyOptions { site: Address; key: string; /** * What the caller was quoted — `SlotState.charged`. Used to derive `maxPrice` and `value` when * neither is given explicitly. */ charged: bigint; /** A freshly-read `encumbranceHash(key)` for the state the buyer was shown. Required. */ expectedTerms: Hex; /** Overrides the derived `charged + slippage`. */ maxPrice?: bigint; /** Basis points of headroom over `charged`. Ignored when `maxPrice` is given. */ slippageBps?: bigint; /** Absolute unix seconds. Overrides `deadlineSecs`. */ deadline?: bigint; /** Seconds from `now`. */ deadlineSecs?: bigint; /** * The clock the deadline is measured from. * * **This should be the CHAIN's clock, not the client's.** `buy` compares its deadline against * `block.timestamp`; those are close on most chains and are not the same number. A user whose * system clock is ten minutes slow, or a chain whose timestamps lag, gets `DeadlineExpired` on * every purchase with nothing in the UI able to explain why. `buildBuyFrom` supplies it from a * pinned block; this defaults to `Date.now()` only so the builder stays usable without a client. */ now?: bigint; /** * Who ends up OWNING the slot. Omit and the payer owns it (`buy`); supply it and the payer is * merely paying (`buyFor`). */ recipient?: Address; }"
+    },
+    "BuildCreateSiteOptions": {
+      "kind": "interface",
+      "signature": "interface BuildCreateSiteOptions { factory: Address; name: string; symbol: string; baseTokenURI: string; treasury: Address; economics: SiteEconomicsConfig; /** Registered in the same transaction as the deploy, so one tx produces a working board. */ slots?: Readonly<Record<string, bigint>>; royaltyBps?: bigint; /** §7.5. Leave off unless the site genuinely wants a free-for-all key namespace. */ openRegistration?: boolean; /** Floor an auto-registered key gets. Required when `openRegistration` is on. */ defaultFloor?: bigint; /** * Who owns the SITE. Omit and the sender owns it (`createSite`); supply it and the sender is * merely paying (`createSiteFor`) — §10.8, the same trap as `buyFor` one level up. */ owner?: Address; }"
+    },
+    "SiteEconomicsConfig": {
+      "kind": "interface",
+      "signature": "interface SiteEconomicsConfig { /** 1.4x is `14_000`. Must exceed `payoutBps + protocolBps`, and is capped at `30_000`. */ takeBps: bigint; /** 1.15x is `11_500`. Must be at least `10_000` — a site can only monetize the spread. */ payoutBps: bigint; /** Per-week decay. `9_000` is 0.9; `10_000` is no decay at all. */ decayBps: bigint; /** Capped at 52. §7.7 recommends websitekit sites default SHORTER than v1's 52. */ maxDecayWeeks: bigint; /** Minimum seconds between takes on one slot. Capped at 7 days. */ cooldownSecs: bigint; }"
+    },
+    "defineSite": {
+      "kind": "function",
+      "signature": "(input: DefineSiteInput) => SiteConfig"
+    },
+    "slotFloors": {
+      "kind": "function",
+      "signature": "(config: SiteConfig) => Record<string, bigint>"
+    },
+    "CONTENT_KIND_BY_NAME": {
+      "kind": "const",
+      "signature": "Record<SlotKindName, number>"
+    },
+    "DEFAULT_CONTENT_GATEWAY": {
+      "kind": "const",
+      "signature": "(cid: string) => string"
+    },
+    "InvalidSiteConfigError": {
+      "kind": "class",
+      "signature": "typeof InvalidSiteConfigError"
+    },
+    "SiteConfig": {
+      "kind": "interface",
+      "signature": "interface SiteConfig { address: Address; chain: Chain; /** Insertion-ordered, matching the config file, so a board reads in the order it was written. */ slots: SlotDefinition[]; slotsByKey: Record<string, SlotDefinition>; keys: string[]; contentUrl: (cid: string) => string; }"
+    },
+    "SlotDefinition": {
+      "kind": "interface",
+      "signature": "interface SlotDefinition { key: string; kind: SlotKindName; contentKind: number; floor: bigint; }"
+    },
+    "SlotDefinitionInput": {
+      "kind": "interface",
+      "signature": "interface SlotDefinitionInput { kind: SlotKindName; /** * Ether as a decimal string — `'0.002'`, not `2000000000000000n`. * * A string because this is the one number a builder types by hand, and `0.002` in a config file * read as a JS float is exactly the class of money bug the rest of this codebase refuses to have. * `parseEther` converts once, here. */ floor: string; }"
+    },
+    "SlotKindName": {
+      "kind": "type",
+      "signature": "type SlotKindName = 'text' | 'link' | 'image' | 'video';"
+    },
+    "DefineSiteInput": {
+      "kind": "interface",
+      "signature": "interface DefineSiteInput { /** The clone's address, returned by `createSite()`. */ address: Address; chain: Chain; slots: Record<string, SlotDefinitionInput>; /** * Where verified content bytes are fetched from, given a CID. * * Defaults to a public IPFS gateway, which is fine for text and is the scaffold's zero-credential * default. A site with its own storage passes its own resolver — see §3's three tiers. Whatever * this returns, the bytes are hash-checked before they render, so a hostile gateway can cause a * blank slot but never a substituted one. */ contentUrl?: (cid: string) => string; }"
+    },
+    "ROBINHOOD_TESTNET": {
+      "kind": "const",
+      "signature": "Deployment"
+    },
+    "DEPLOYMENTS": {
+      "kind": "const",
+      "signature": "Record<number, Deployment>"
+    },
+    "DEMO_SITE": {
+      "kind": "const",
+      "signature": "`0x${string}`"
+    },
+    "EXAMPLE_SITES": {
+      "kind": "const",
+      "signature": "{ readonly dispatch: \"0x895Fb4Ba710b0f495983A582b5c9013ccC33736c\"; readonly devconf: \"0xA7f8Dba26F82cc1deD9a63F28932eC87128834F0\"; readonly remoteroles: \"0x8c0d776ece615Ba01bE5038b95aA9Df5F3411f99\"; readonly vaultline: \"0xE41addf32313915F98b6cE5c63B6db8d0D6B092e\"; }"
+    },
+    "deploymentFor": {
+      "kind": "function",
+      "signature": "(chainId: number) => Deployment"
+    },
+    "Deployment": {
+      "kind": "interface",
+      "signature": "interface Deployment { chainId: number; /** The audited `SlotSite` every site on this chain is a clone of. */ implementation: Address; /** `createSite` / `createSiteFor` live here. Not frozen — a new factory can point at the same * implementation without stranding anyone (§10.8). */ factory: Address; /** Basis points of every buy taken by the protocol. An `immutable` in the implementation, so no * clone can strip it. */ protocolBps: bigint; explorer: string; }"
+    }
+  }
+}

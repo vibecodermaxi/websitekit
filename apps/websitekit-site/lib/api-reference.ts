@@ -26,8 +26,17 @@ export interface ApiSymbol {
   name: string;
   /** `function`, `const`, `type`, `interface`, `class`, `enum` — what a reader needs to know first. */
   kind: string;
-  /** The rendered type. Truncated: see MAX_SIGNATURE. */
+  /** The rendered type, capped for display: see MAX_SIGNATURE. */
   signature: string;
+  /**
+   * The same type, uncapped.
+   *
+   * Kept because the v1-to-v2 page compares signatures for equality, and the display cap made every
+   * export longer than the cap compare unequal to its own frozen v1 snapshot — six types were
+   * reported as breaking changes when they were byte-identical past the ellipsis. A truncated string
+   * is fine to show and never safe to diff.
+   */
+  signatureFull: string;
   /** True when the signature was too long to show in full. */
   truncated: boolean;
   /** First paragraph of the JSDoc, or '' when the export carries none. */
@@ -113,6 +122,21 @@ function groupsFromEntry(source: string): { order: string[]; blurbs: Map<string,
 }
 
 let cached: ApiGroup[] | null = null;
+let cachedFlat: Map<string, ApiSymbol> | null = null;
+
+/**
+ * Every export, flat and keyed by name.
+ *
+ * Shared with the v1-to-v2 page so the two never disagree about what the SDK currently exports, and
+ * so a single TypeScript program serves both — creating a second one doubles the slowest part of
+ * the build for an identical answer.
+ */
+export function readSdkSurface(): Map<string, ApiSymbol> {
+  if (!cachedFlat) {
+    cachedFlat = new Map(readApiReference().flatMap((group) => group.symbols.map((s) => [s.name, s] as const)));
+  }
+  return cachedFlat;
+}
 
 export function readApiReference(): ApiGroup[] {
   if (cached) return cached;
@@ -159,6 +183,7 @@ export function readApiReference(): ApiGroup[] {
     } catch {
       signature = '';
     }
+    const signatureFull = signature;
     const truncated = signature.length > MAX_SIGNATURE;
     if (truncated) signature = `${signature.slice(0, MAX_SIGNATURE)}…`;
 
@@ -174,6 +199,7 @@ export function readApiReference(): ApiGroup[] {
       name: symbol.getName(),
       kind,
       signature,
+      signatureFull,
       truncated,
       summary,
     });
@@ -189,6 +215,14 @@ export function readApiReference(): ApiGroup[] {
     symbols: byGroup.get(title)!.sort((a, b) => a.name.localeCompare(b.name)),
   }));
   return cached;
+}
+
+/** Which authored group a symbol belongs to, for pages that need the grouping but not the layout. */
+export function groupOf(name: string): string {
+  for (const group of readApiReference()) {
+    if (group.symbols.some((symbol) => symbol.name === name)) return group.title;
+  }
+  return 'Other';
 }
 
 /** Total exports documented — shown on the page, and the number that makes a regression obvious. */

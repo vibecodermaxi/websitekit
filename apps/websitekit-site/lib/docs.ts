@@ -74,6 +74,7 @@ export const DOC_PAGES: DocPage[] = [
 export const DOC_NAV: { slug: string; title: string }[] = [
   ...DOC_PAGES.map((page) => ({ slug: page.slug, title: page.title })),
   { slug: 'api', title: 'API reference' },
+  { slug: 'v1-to-v2', title: 'v1 → v2' },
 ];
 
 export function docFor(slug: string): DocPage | undefined {
