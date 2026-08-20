@@ -31,6 +31,13 @@ describe('committed ABIs match the forge artifacts', () => {
     const artifactPath = path.join(contractsOut, solFile, `${contractName}.json`);
     const hasArtifact = fs.existsSync(artifactPath);
 
+    // Same rule as the anvil suite: locally this skips so a fresh clone is usable before the first
+    // `forge build`; in CI the artifact is always supposed to exist, so its absence is a broken
+    // workflow rather than a reason to report success.
+    if (!hasArtifact && process.env.CI) {
+      throw new Error(`${contractName}: no forge artifact at ${artifactPath} — CI must build contracts first`);
+    }
+
     it.skipIf(!hasArtifact)(`${contractName} is in sync (run \`pnpm sync:abi\` if not)`, () => {
       const artifactAbi = JSON.parse(fs.readFileSync(artifactPath, 'utf-8')).abi;
       const committedAbi = JSON.parse(fs.readFileSync(path.join(__dirname, 'abi', committed), 'utf-8'));

@@ -96,6 +96,17 @@ if (!runnable) {
   const reason = !hasAnvil
     ? 'anvil is not on PATH — install Foundry: https://getfoundry.sh'
     : 'no contract artifacts — run `pnpm build:contracts` (or `forge build`) first';
+
+  // **On a runner, a skip is a misconfiguration, not a courtesy.** Nothing in CI is "a fresh clone
+  // somebody is trying out", so the warning above — which a human reads and a log does not — would
+  // let the one suite that executes real bytecode vanish behind a green check. This repo has been
+  // bitten by a quiet false PASS before (Blockscout reporting an unverified contract as verified),
+  // and the lesson recorded then was that a false pass is quieter than a false fail.
+  if (process.env.CI) {
+    throw new Error(
+      `the anvil end-to-end suite cannot run and this is CI, where skipping it is a failure: ${reason}`,
+    );
+  }
   console.warn(`\n  SKIPPING the anvil end-to-end suite: ${reason}\n`);
 }
 

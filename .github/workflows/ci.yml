@@ -1,0 +1,156 @@
+# websitekit CI.
+#
+# The repo has four deliberately separate test layers (unit, parity, anvil e2e, invariant) and until
+# now none of them had ever run anywhere but one laptop. Each job below is one of those layers plus
+# the things that only break in a clean checkout.
+#
+# **Foundry is required by the JavaScript job too, not only the contracts job.** The parity harness
+# spawns `forge` to generate its vector grids, and the end-to-end suite drives a real `anvil`. A
+# runner without Foundry does not fail those suites — it SKIPS them, which is why the SDK now turns
+# a skip into an error whenever `CI` is set.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A second push supersedes the first. Nothing here writes anywhere, so cancelling is free — except
+# for `deploy`, which is excluded below because cancelling a half-finished rollout is not.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: contracts · forge
+    runs-on: ubuntu-latest
+    # The invariant campaigns are ~147s of it; 20 leaves room for a slow runner without hanging.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Formatting
+        working-directory: packages/websitekit-contracts
+        run: forge fmt --check
+
+      - name: Sizes against EIP-170
+        working-directory: packages/websitekit-contracts
+        # SlotSite is a frozen clone target with ~10% headroom and `via_ir` deliberately unavailable
+        # as an escape hatch, so size is a standing risk rather than a one-off check.
+        run: forge build --sizes
+
+      - name: Tests
+        working-directory: packages/websitekit-contracts
+        # --threads 1 matches `pnpm test:contracts`: the invariant suite is not thread-safe here.
+        run: forge test --threads 1
+
+  javascript:
+    name: sdk · react · scaffold
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      # Before setup-node, so `cache: pnpm` can find the store. Version comes from `packageManager`.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13
+          cache: pnpm
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build contracts
+        # The ABI-sync test and the e2e suite both read `out/`. Without this they would skip — and
+        # in CI the SDK raises instead, which is the point.
+        run: pnpm build:contracts
+
+      - name: Lint
+        run: pnpm -r lint
+
+      - name: Tests
+        # `@websitekit/contracts` is excluded because its `test` script IS `forge test`, which the
+        # contracts job above already runs in full. Without the filter every push pays for the
+        # invariant campaigns twice — 2m36s of duplicated work for an identical result.
+        run: pnpm -r --filter '!@websitekit/contracts' test
+
+  site:
+    name: websitekit.org · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        # Not just "does it compile". The prerender runs three guards that only fire here: no
+        # repo-relative link survives into a published page, no superseded board address appears in
+        # one, and the API reference generates from the SDK's live types.
+        run: pnpm --filter websitekit-site build
+
+  packages:
+    name: publishable packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Every declared entry point exists inside its tarball
+        # 0.1.0 of the SDK and React shipped installable and unimportable, because `main` pointed at
+        # a path `files` excludes. npm does not check that; this does.
+        run: node scripts/verify-packed.mjs
+
+  deploy:
+    name: deploy websitekit.org
+    needs: [contracts, javascript, site, packages]
+    # Only a real push to main, never a pull request — a fork PR must not be able to deploy.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        # The service predates the pivot and is named `slotkit-site`, in a project named
+        # `not-a-website`. A project-scoped token implies both, so only the service is named here.
+        #
+        # Without the secret this warns and passes rather than failing: a fork, and the window
+        # before the token is added, should not show a red X for infrastructure they do not have.
+        run: |
+          if [ -z "${RAILWAY_TOKEN}" ]; then
+            echo "::warning title=Deploy skipped::RAILWAY_TOKEN is not set, so websitekit.org was not updated."
+            exit 0
+          fi
+          railway up --service slotkit-site --ci

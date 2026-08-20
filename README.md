@@ -1,5 +1,8 @@
 # websitekit
 
+[![CI](https://github.com/vibecodermaxi/websitekit/actions/workflows/ci.yml/badge.svg)](https://github.com/vibecodermaxi/websitekit/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@websitekit/sdk?label=%40websitekit%2Fsdk)](https://www.npmjs.com/package/@websitekit/sdk)
+
 **Turn regions of your page into ownable, tradeable inventory.**
 
 A publisher marks parts of a page as *slots*. Anyone can buy one and become its effective owner —

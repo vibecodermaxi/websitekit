@@ -472,11 +472,7 @@ abstract contract SlotSiteInvariantBase is Test {
     /// when the purchase landed. Takes are exempt by design; the flag is not a lever over owned
     /// positions.
     function _checkClaimsRespectAvailability() internal view {
-        assertEq(
-            handler.ghostUnavailableClaims(),
-            0,
-            "a claim landed on a slot the publisher had marked unavailable"
-        );
+        assertEq(handler.ghostUnavailableClaims(), 0, "a claim landed on a slot the publisher had marked unavailable");
     }
 
     // -----------------------------------------------------------------
