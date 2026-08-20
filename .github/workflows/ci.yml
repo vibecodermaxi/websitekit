@@ -8,6 +8,12 @@
 # spawns `forge` to generate its vector grids, and the end-to-end suite drives a real `anvil`. A
 # runner without Foundry does not fail those suites — it SKIPS them, which is why the SDK now turns
 # a skip into an error whenever `CI` is set.
+#
+# **There is no deploy job.** websitekit.org is deployed by Railway's own GitHub integration, which
+# watches this repo directly — so a push is the trigger and there is no token here to leak or
+# rotate. Railway's "Wait for CI" setting is what makes that deploy wait for the jobs below; without
+# it a red build still ships. That toggle lives in the service settings, not in this file, which is
+# the one thing this arrangement makes less visible than a `needs:` line did.
 name: CI
 
 on:
@@ -16,8 +22,7 @@ on:
   pull_request:
     branches: [main]
 
-# A second push supersedes the first. Nothing here writes anywhere, so cancelling is free — except
-# for `deploy`, which is excluded below because cancelling a half-finished rollout is not.
+# A second push supersedes the first. Nothing here writes anywhere, so cancelling is always free.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -126,31 +131,3 @@ jobs:
         # 0.1.0 of the SDK and React shipped installable and unimportable, because `main` pointed at
         # a path `files` excludes. npm does not check that; this does.
         run: node scripts/verify-packed.mjs
-
-  deploy:
-    name: deploy websitekit.org
-    needs: [contracts, javascript, site, packages]
-    # Only a real push to main, never a pull request — a fork PR must not be able to deploy.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        # The service predates the pivot and is named `slotkit-site`, in a project named
-        # `not-a-website`. A project-scoped token implies both, so only the service is named here.
-        #
-        # Without the secret this warns and passes rather than failing: a fork, and the window
-        # before the token is added, should not show a red X for infrastructure they do not have.
-        run: |
-          if [ -z "${RAILWAY_TOKEN}" ]; then
-            echo "::warning title=Deploy skipped::RAILWAY_TOKEN is not set, so websitekit.org was not updated."
-            exit 0
-          fi
-          railway up --service slotkit-site --ci
