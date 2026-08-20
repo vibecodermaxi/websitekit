@@ -145,7 +145,15 @@ img {
   text-wrap: balance;
 }
 
-.site .sub {
+/**
+ * The homepage lede paragraphs.
+ *
+ * `p.sub`, not `.sub`: the docs rail marks its h3 entries `<li class="sub">` and sits inside
+ * `.site`, so the bare class matched them too — 1.1rem list items in a 0.72rem sidebar, wrapped at
+ * 58ch and pushed apart by a paragraph's bottom margin. The hierarchy read backwards, with
+ * sub-headings larger than the headings above them.
+ */
+.site p.sub {
   font-size: 1.1rem;
   color: var(--muted);
   margin: 0 0 1rem;
@@ -363,8 +371,11 @@ img {
   border-left: 2px solid transparent;
 }
 
+/* h3 entries: indented, dimmer, and a step smaller — so the level reads from the type as well as
+   from the indent, which is what was missing when they were rendering LARGER than their parents. */
 .docs-rail li.sub a {
   padding-left: 1.5rem;
+  font-size: 0.68rem;
   opacity: 0.8;
 }
 
