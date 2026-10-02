@@ -46,11 +46,11 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { existsSync, readFileSync } from 'node:fs';
 
 import {
-  EXAMPLE_SITES,
   ROBINHOOD_TESTNET_CHAIN,
   approvalFor,
   buildBuyFrom,
   demoSiteFor,
+  exampleSitesFor,
   chainFor,
   parseFloor,
   readBuyContext,
@@ -291,29 +291,45 @@ export async function buy(
 }
 
 /**
+ * The example-board ledger for the ACTIVE chain: `examples.json` on the testnet, where it has always
+ * lived, and `examples.<chainId>.json` anywhere else. Per chain rather than one file with a map,
+ * because every guard in `seed-examples.ts` refuses a ledger for another chain outright — so two
+ * chains in one file would make whichever ran second refuse to run at all.
+ */
+export function examplesLedgerPath(): URL {
+  return new URL(active.testnet ? '../examples.json' : `../examples.${active.id}.json`, import.meta.url);
+}
+
+/**
  * Where the seeded boards live, resolved in the order that is true soonest.
  *
- * `seed-examples.ts` writes `examples.json` the moment each site is created, and `src/addresses.ts`
- * is only updated afterwards by hand. So a freshly seeded board exists in the ledger before it
- * exists in the published constant, and a script run in between would otherwise read the PREVIOUS
+ * `seed-examples.ts` writes the ledger the moment each site is created, and `src/addresses.ts` is
+ * only updated afterwards by hand. So a freshly seeded board exists in the ledger before it exists
+ * in the published constant, and a script run in between would otherwise read the PREVIOUS
  * generation's addresses and quietly seed content onto boards nobody is looking at. The ledger wins
- * when it exists; the constant is the answer for anyone who did not just run the seeder.
+ * when it exists; the published constant for this chain is the answer otherwise.
  */
 export function exampleSites(): Record<string, Address> {
-  const ledgerPath = new URL('../examples.json', import.meta.url);
-  if (!existsSync(ledgerPath)) return { ...EXAMPLE_SITES };
+  const ledgerPath = examplesLedgerPath();
+  if (!existsSync(ledgerPath)) {
+    const published = exampleSitesFor(active.id);
+    if (!published) throw new Error(`no example boards are recorded for ${active.name}`);
+    return { ...published };
+  }
 
   const ledger = JSON.parse(readFileSync(ledgerPath, 'utf-8')) as {
     version?: number;
+    chainId?: number;
     sites?: Record<string, Address>;
   };
   // A ledger from an earlier contract generation names boards this SDK cannot read at all. Refusing
   // is the whole point: the untagged v1 ledger was read as current once, and the only reason it did
   // not seed content onto unreadable boards was that `readTerms` happened to revert first.
   if (ledger.version !== 2) {
-    throw new Error(
-      `scripts/examples.json is a v${ledger.version ?? 1} ledger — move it aside; its boards are not v2 clones`,
-    );
+    throw new Error(`${ledgerPath.pathname} is a v${ledger.version ?? 1} ledger — move it aside; its boards are not v2 clones`);
+  }
+  if (ledger.chainId !== active.id) {
+    throw new Error(`${ledgerPath.pathname} is for chain ${ledger.chainId}, not ${active.id}`);
   }
   return { ...ledger.sites };
 }

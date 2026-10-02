@@ -27,7 +27,7 @@ export function Vaultline() {
           <span>Docs</span>
           <span>Governance</span>
           <span>Audits</span>
-          <Slot id="nav.link.1" className="open-chip" fallback="Your link — 0.00003 ETH" />
+          <Slot id="nav.link.1" className="open-chip" fallback="Your link — $1" />
         </nav>
       </header>
 
@@ -90,7 +90,7 @@ export function Vaultline() {
 
       <footer className="ex-foot">
         <Slot id="footer.link.1" fallback="Read the docs" /> · Vaultline ·{' '}
-        <Slot id="footer.link.2" fallback="Footer link for sale — 0.00001 ETH" />
+        <Slot id="footer.link.2" fallback="Footer link for sale — $1" />
       </footer>
     </div>
   );

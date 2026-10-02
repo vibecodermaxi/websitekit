@@ -13,13 +13,13 @@ export function DevConf() {
       <Slot
         id="announce.bar"
         className="announce"
-        fallback="This strip is for sale — 0.00006 ETH, above every ticket link on the page."
+        fallback="This strip is for sale — $1, above every ticket link on the page."
       />
 
       <nav className="topnav">
         <span>Schedule</span>
         <span>Tickets</span>
-        <Slot id="nav.link.1" fallback="Your link — 0.00002 ETH" />
+        <Slot id="nav.link.1" fallback="Your link — $1" />
       </nav>
 
       <section className="hero">
@@ -71,7 +71,7 @@ export function DevConf() {
 
       <footer className="ex-foot">
         DevConf Autumn · Lisbon ·{' '}
-        <Slot id="footer.link.1" fallback="Footer link for sale — 0.000008 ETH" />
+        <Slot id="footer.link.1" fallback="Footer link for sale — $1" />
       </footer>
     </div>
   );

@@ -427,11 +427,11 @@ On mainnet the money is real. Treat it as experimental.
 
 ## Reference inventory configurations
 
-Four boards, live on the testnet, cloned from the same implementation. They differ in the dimensions
+Four boards, live on Robinhood Chain mainnet and priced in USDG, cloned from the same implementation. They differ in the dimensions
 that actually vary between publishers: **what is carved into inventory**, **the take economics**, and
 **the rent economics**. Their reversion windows span 4 to 52 weeks — the full range the contract
 permits — and their rent fees span 15% to 40% over terms from 14 to 365 days. Addresses are in
-`addresses.ts` as `EXAMPLE_SITES`.
+`addresses.ts` as `EXAMPLE_SITES_MAINNET` (and `EXAMPLE_SITES` for the testnet copies).
 
 ### The Weekly Dispatch — a newsletter archive
 
@@ -499,12 +499,12 @@ metrics would be selling the right to misstate them. Issue attention; never issu
 
 | | address |
 |---|---|
-| The Weekly Dispatch | [`0xE0d1cF918a53eB92Ec672fa93530601ef4758Aa7`](https://explorer.testnet.chain.robinhood.com/address/0xE0d1cF918a53eB92Ec672fa93530601ef4758Aa7) |
-| DevConf Autumn | [`0xB1A7262F3eD2e54F4d950c5Ae76A24D726156932`](https://explorer.testnet.chain.robinhood.com/address/0xB1A7262F3eD2e54F4d950c5Ae76A24D726156932) |
-| Remote Roles | [`0xa7aea56116E6d478B501E2d75828A286e9E7C489`](https://explorer.testnet.chain.robinhood.com/address/0xa7aea56116E6d478B501E2d75828A286e9E7C489) |
-| Vaultline | [`0x67E2A12B023c7715Ae98ea30563Bb86BEE57D89a`](https://explorer.testnet.chain.robinhood.com/address/0x67E2A12B023c7715Ae98ea30563Bb86BEE57D89a) |
+| The Weekly Dispatch | [`0x6Db93fE0dd003f616081D0e8bDA58da33B464Eef`](https://robinhoodchain.blockscout.com/address/0x6Db93fE0dd003f616081D0e8bDA58da33B464Eef) |
+| DevConf Autumn | [`0x951B16F06D31707FdE54fe177918C55550BaAaa0`](https://robinhoodchain.blockscout.com/address/0x951B16F06D31707FdE54fe177918C55550BaAaa0) |
+| Remote Roles | [`0xc1920ee84B1da603A514f5a5403019b7d1b98627`](https://robinhoodchain.blockscout.com/address/0xc1920ee84B1da603A514f5a5403019b7d1b98627) |
+| Vaultline | [`0x50838AfEc1329dF3fA3ACDEd27355ab2af7b4dB8`](https://robinhoodchain.blockscout.com/address/0x50838AfEc1329dF3fA3ACDEd27355ab2af7b4dB8) |
 
-Exported as `EXAMPLE_SITES` from `@websitekit/sdk` and rendered as live pages by `apps/websitekit-site`,
+Exported as `EXAMPLE_SITES_MAINNET` from `@websitekit/sdk` and rendered as live pages by `apps/websitekit-site`,
 with per-position revenue computed through `computeSplit` from each board's on-chain terms.
 
 ---

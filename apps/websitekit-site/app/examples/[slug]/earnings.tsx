@@ -1,4 +1,4 @@
-import { formatEther } from 'viem';
+import { formatUnits } from 'viem';
 import {
   computeSplit,
   computeTakePrice,
@@ -14,7 +14,7 @@ import type { ExampleMeta } from '../../../lib/sites';
  *
  * The one thing the pages could not say before: a dev looking at a websitekit site can see that slots
  * are owned and priced, and still have no idea what any of it is worth to *them*. This answers it
- * per slot, in ETH, from live chain state.
+ * per slot, in the board's own currency (USDG), from live chain state.
  *
  * **Every number here comes from `computeSplit`, the same function the contract's split is mirrored
  * from.** Nothing is a hardcoded multiplier and nothing is an estimate dressed up as a fact:
@@ -43,6 +43,9 @@ export function Earnings({
   // because these are five similarly-named `bigint`s: transposing two of them type-checks, runs,
   // and produces a quote that is merely wrong.
   const economics = economicsFromTerms(terms);
+  // The board's settlement decimals, never 18: these boards settle in 6-decimal USDG, and an
+  // ether formatter on one of their amounts shows $2.00 as 0.000000000002.
+  const money = (amount: bigint) => `$${formatUnits(amount, example.config.decimals)}`;
 
   const rows = slots.map((slot) => {
     // What the treasury is credited if this slot sells right now, whoever buys it and however.
@@ -92,11 +95,11 @@ export function Earnings({
         <div className="earn-heads">
           <div>
             <span className="k">If every slot sold once, right now</span>
-            <strong>{formatEther(ifAllSoldOnce)} ETH</strong>
+            <strong>{money(ifAllSoldOnce)}</strong>
           </div>
           <div>
             <span className="k">Then per full round of resales, at floor</span>
-            <strong>{formatEther(perRoundOfResales)} ETH</strong>
+            <strong>{money(perRoundOfResales)}</strong>
           </div>
           <div>
             <span className="k">Open slots anyone can claim today</span>
@@ -127,9 +130,9 @@ export function Earnings({
                       {slot.isUnclaimed ? 'open' : 'owned'}
                     </span>
                   </td>
-                  <td className="r">{formatEther(slot.floor)}</td>
-                  <td className="r strong">{formatEther(now)}</td>
-                  <td className="r dim">{formatEther(steady)}</td>
+                  <td className="r">{money(slot.floor)}</td>
+                  <td className="r strong">{money(now)}</td>
+                  <td className="r dim">{money(steady)}</td>
                   <td className="r dim">{slot.takes}</td>
                 </tr>
               ))}

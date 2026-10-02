@@ -350,6 +350,33 @@ export const EXAMPLE_SITES = {
 } as const satisfies Record<string, Address>;
 
 /**
+ * The four example boards on MAINNET, settling in USDG. **Seeded 2026-10-03 by
+ * `scripts/seed-examples.ts`, content by `scripts/seed-example-content.ts`**, against
+ * `ROBINHOOD_MAINNET`. Same layouts and economics as `EXAMPLE_SITES`, in their final shape from the
+ * start: every content slot owned across two demo accounts, a couple taken once, and only the edge
+ * slots open. Floors $2 for each board's most prominent slot, $1 for the rest.
+ */
+export const EXAMPLE_SITES_MAINNET = {
+  dispatch: '0x6Db93fE0dd003f616081D0e8bDA58da33B464Eef',
+  devconf: '0x951B16F06D31707FdE54fe177918C55550BaAaa0',
+  remoteroles: '0xc1920ee84B1da603A514f5a5403019b7d1b98627',
+  vaultline: '0x50838AfEc1329dF3fA3ACDEd27355ab2af7b4dB8',
+} as const satisfies Record<string, Address>;
+
+/**
+ * Each chain's example boards, keyed by chain id. Like `demoSiteFor`, `exampleSitesFor` answers
+ * `undefined` for a chain with none rather than another chain's boards.
+ */
+export const EXAMPLE_SITES_BY_CHAIN: Record<number, Record<string, Address>> = {
+  [ROBINHOOD_MAINNET_CHAIN.id]: EXAMPLE_SITES_MAINNET,
+  [ROBINHOOD_TESTNET_CHAIN.id]: EXAMPLE_SITES,
+};
+
+export function exampleSitesFor(chainId: number): Record<string, Address> | undefined {
+  return EXAMPLE_SITES_BY_CHAIN[chainId];
+}
+
+/**
  * The v1 example boards. Unreachable from this package — their implementation source is deleted and
  * the SDK no longer carries their ABI. Kept as provenance, and because they still exist on chain.
  *

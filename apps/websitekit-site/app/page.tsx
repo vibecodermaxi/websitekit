@@ -131,7 +131,7 @@ export default function Home() {
 
         <h2 id="examples">Reference inventory configurations</h2>
         <p className="section-note">
-          Four boards on the Robinhood Chain testnet, cloned from the same implementation. Every price
+          Four boards on Robinhood Chain mainnet, priced in USDG and cloned from the same implementation. Every price
           and holder below is read from the chain when the page renders. They differ in the only two
           dimensions that vary between publishers: what gets carved into inventory, and the terms
           frozen at <code>createSite</code>. Each page ends with per-position revenue computed from

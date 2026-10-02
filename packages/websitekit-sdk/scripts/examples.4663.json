@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "chainId": 4663,
+  "factory": "0x939eb0ab90f7c8b3889d8950d54b2edf7a0fb21f",
+  "sites": {
+    "dispatch": "0x6Db93fE0dd003f616081D0e8bDA58da33B464Eef",
+    "devconf": "0x951B16F06D31707FdE54fe177918C55550BaAaa0",
+    "remoteroles": "0xc1920ee84B1da603A514f5a5403019b7d1b98627",
+    "vaultline": "0x50838AfEc1329dF3fA3ACDEd27355ab2af7b4dB8"
+  }
+}

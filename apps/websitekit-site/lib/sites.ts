@@ -1,6 +1,11 @@
-import { EXAMPLE_SITES, ROBINHOOD_TESTNET, defineSite } from '@websitekit/sdk';
+import { deploymentFor, exampleSitesFor, settlementTokenFor, defineSite } from '@websitekit/sdk';
 
-import { robinhoodTestnet } from './chain';
+import { exampleChain } from './chain';
+
+/** Resolved once, and loudly: a mainnet page with no recorded boards is a build failure, not a blank page. */
+const SITES = exampleSitesFor(exampleChain.id);
+if (!SITES) throw new Error(`no example boards are recorded for ${exampleChain.name}`);
+const EXAMPLE_SITES = SITES as Record<'dispatch' | 'devconf' | 'remoteroles' | 'vaultline', `0x${string}`>;
 
 /**
  * The four example boards, as `defineSite` configs.
@@ -11,24 +16,23 @@ import { robinhoodTestnet } from './chain';
  * with the contract shows up as nothing at all, which is exactly the sort of quiet wrong that this
  * comment exists to warn the next editor about. Change one, change both.
  *
- * **Every floor is 0.0001 or 0.0002.** v2 derives `minFloor` from the settlement token's decimals —
- * `10 ** (decimals - 4)`, so 1e14 on a native site (§11.2) — and v1's board ran from 4e12 to 1.5e14.
- * Every value below the minimum reverts `InvalidFloor` now, so the boards were redeployed with a 2x
- * spread rather than v1's 37x. That is a testnet funding constraint, not a claim about what a real
- * board should charge.
+ * **Floors are in dollars — $2 for each board's most prominent slot, $1 for the rest.** The boards
+ * settle in USDG on Robinhood Chain mainnet, six decimals, and `decimals` below is what the floors
+ * are parsed against. Prices on the page are read from the chain and formatted at the same decimals.
  *
  * `kind` is not cosmetic: it decides how `<Slot>` decodes a payload. `link` is JSON
  * `{ href, label }`, `text` is UTF-8.
  */
 
 const common = {
-  chain: robinhoodTestnet,
+  chain: exampleChain,
+  decimals: settlementTokenFor(exampleChain.id).decimals,
   /**
    * Every read goes through `SlotReader` — a separate, deliberately REPLACEABLE deployment rather
    * than an address baked into the SDK (§11.4). v1 read the board out of the site itself, which is
    * why this argument is new and why it is required rather than defaulted.
    */
-  reader: ROBINHOOD_TESTNET.reader!,
+  reader: deploymentFor(exampleChain.id).reader!,
   contentUrl: (cid: string) => `/api/content/${cid}`,
 };
 
@@ -38,19 +42,19 @@ export const dispatch = defineSite({
   slots: {
     // The three "extras" — registered after launch and left open on purpose. These are what the
     // page advertises, because these are what a real publisher would actually be willing to sell.
-    'announce.bar': { kind: 'link', floor: '0.0001' },
-    'nav.link.1': { kind: 'link', floor: '0.0001' },
-    'footer.link.1': { kind: 'link', floor: '0.0001' },
+    'announce.bar': { kind: 'link', floor: '1.00' },
+    'nav.link.1': { kind: 'link', floor: '1.00' },
+    'footer.link.1': { kind: 'link', floor: '1.00' },
 
-    'masthead.title': { kind: 'text', floor: '0.0001' },
-    'masthead.tagline': { kind: 'text', floor: '0.0001' },
-    'sponsor.primary': { kind: 'link', floor: '0.0002' },
-    'issue.latest.sponsor': { kind: 'link', floor: '0.0001' },
-    'issue.prev.sponsor': { kind: 'link', floor: '0.0001' },
-    'recommended.1': { kind: 'link', floor: '0.0001' },
-    'recommended.2': { kind: 'link', floor: '0.0001' },
-    'recommended.3': { kind: 'link', floor: '0.0001' },
-    'footer.credit': { kind: 'text', floor: '0.0001' },
+    'masthead.title': { kind: 'text', floor: '1.00' },
+    'masthead.tagline': { kind: 'text', floor: '1.00' },
+    'sponsor.primary': { kind: 'link', floor: '2.00' },
+    'issue.latest.sponsor': { kind: 'link', floor: '1.00' },
+    'issue.prev.sponsor': { kind: 'link', floor: '1.00' },
+    'recommended.1': { kind: 'link', floor: '1.00' },
+    'recommended.2': { kind: 'link', floor: '1.00' },
+    'recommended.3': { kind: 'link', floor: '1.00' },
+    'footer.credit': { kind: 'text', floor: '1.00' },
   },
 });
 
@@ -58,19 +62,19 @@ export const devconf = defineSite({
   ...common,
   address: EXAMPLE_SITES.devconf,
   slots: {
-    'announce.bar': { kind: 'link', floor: '0.0001' },
-    'nav.link.1': { kind: 'link', floor: '0.0001' },
-    'footer.link.1': { kind: 'link', floor: '0.0001' },
+    'announce.bar': { kind: 'link', floor: '1.00' },
+    'nav.link.1': { kind: 'link', floor: '1.00' },
+    'footer.link.1': { kind: 'link', floor: '1.00' },
 
-    'sponsor.headline': { kind: 'link', floor: '0.0002' },
-    'sponsor.gold.1': { kind: 'link', floor: '0.0001' },
-    'sponsor.gold.2': { kind: 'link', floor: '0.0001' },
-    'sponsor.gold.3': { kind: 'link', floor: '0.0001' },
-    'sponsor.silver.1': { kind: 'link', floor: '0.0001' },
-    'sponsor.silver.2': { kind: 'link', floor: '0.0001' },
-    'booth.1': { kind: 'text', floor: '0.0001' },
-    'booth.2': { kind: 'text', floor: '0.0001' },
-    'schedule.note': { kind: 'text', floor: '0.0001' },
+    'sponsor.headline': { kind: 'link', floor: '2.00' },
+    'sponsor.gold.1': { kind: 'link', floor: '1.00' },
+    'sponsor.gold.2': { kind: 'link', floor: '1.00' },
+    'sponsor.gold.3': { kind: 'link', floor: '1.00' },
+    'sponsor.silver.1': { kind: 'link', floor: '1.00' },
+    'sponsor.silver.2': { kind: 'link', floor: '1.00' },
+    'booth.1': { kind: 'text', floor: '1.00' },
+    'booth.2': { kind: 'text', floor: '1.00' },
+    'schedule.note': { kind: 'text', floor: '1.00' },
   },
 });
 
@@ -78,18 +82,18 @@ export const remoteroles = defineSite({
   ...common,
   address: EXAMPLE_SITES.remoteroles,
   slots: {
-    'nav.link.1': { kind: 'link', floor: '0.0001' },
-    'footer.link.2': { kind: 'link', floor: '0.0001' },
+    'nav.link.1': { kind: 'link', floor: '1.00' },
+    'footer.link.2': { kind: 'link', floor: '1.00' },
 
-    'banner.top': { kind: 'link', floor: '0.0002' },
-    'featured.1': { kind: 'link', floor: '0.0001' },
-    'featured.2': { kind: 'link', floor: '0.0001' },
-    'featured.3': { kind: 'link', floor: '0.0001' },
-    'featured.4': { kind: 'link', floor: '0.0001' },
-    'featured.5': { kind: 'link', floor: '0.0001' },
-    'category.design.sponsor': { kind: 'link', floor: '0.0001' },
-    'category.eng.sponsor': { kind: 'link', floor: '0.0001' },
-    'footer.link.1': { kind: 'link', floor: '0.0001' },
+    'banner.top': { kind: 'link', floor: '2.00' },
+    'featured.1': { kind: 'link', floor: '1.00' },
+    'featured.2': { kind: 'link', floor: '1.00' },
+    'featured.3': { kind: 'link', floor: '1.00' },
+    'featured.4': { kind: 'link', floor: '1.00' },
+    'featured.5': { kind: 'link', floor: '1.00' },
+    'category.design.sponsor': { kind: 'link', floor: '1.00' },
+    'category.eng.sponsor': { kind: 'link', floor: '1.00' },
+    'footer.link.1': { kind: 'link', floor: '1.00' },
   },
 });
 
@@ -97,22 +101,22 @@ export const vaultline = defineSite({
   ...common,
   address: EXAMPLE_SITES.vaultline,
   slots: {
-    'nav.link.1': { kind: 'link', floor: '0.0001' },
-    'footer.link.2': { kind: 'link', floor: '0.0001' },
+    'nav.link.1': { kind: 'link', floor: '1.00' },
+    'footer.link.2': { kind: 'link', floor: '1.00' },
 
-    'announce.bar': { kind: 'link', floor: '0.0002' },
-    'hero.headline': { kind: 'text', floor: '0.0002' },
-    'hero.sub': { kind: 'text', floor: '0.0001' },
-    'hero.cta': { kind: 'link', floor: '0.0001' },
-    'integration.1': { kind: 'link', floor: '0.0001' },
-    'integration.2': { kind: 'link', floor: '0.0001' },
-    'integration.3': { kind: 'link', floor: '0.0001' },
-    'integration.4': { kind: 'link', floor: '0.0001' },
-    'ecosystem.1': { kind: 'link', floor: '0.0001' },
-    'ecosystem.2': { kind: 'link', floor: '0.0001' },
-    'ecosystem.3': { kind: 'link', floor: '0.0001' },
-    'audit.note': { kind: 'text', floor: '0.0001' },
-    'footer.link.1': { kind: 'link', floor: '0.0001' },
+    'announce.bar': { kind: 'link', floor: '2.00' },
+    'hero.headline': { kind: 'text', floor: '2.00' },
+    'hero.sub': { kind: 'text', floor: '1.00' },
+    'hero.cta': { kind: 'link', floor: '1.00' },
+    'integration.1': { kind: 'link', floor: '1.00' },
+    'integration.2': { kind: 'link', floor: '1.00' },
+    'integration.3': { kind: 'link', floor: '1.00' },
+    'integration.4': { kind: 'link', floor: '1.00' },
+    'ecosystem.1': { kind: 'link', floor: '1.00' },
+    'ecosystem.2': { kind: 'link', floor: '1.00' },
+    'ecosystem.3': { kind: 'link', floor: '1.00' },
+    'audit.note': { kind: 'text', floor: '1.00' },
+    'footer.link.1': { kind: 'link', floor: '1.00' },
   },
 });
 

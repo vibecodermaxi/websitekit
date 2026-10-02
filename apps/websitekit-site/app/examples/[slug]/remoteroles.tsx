@@ -27,7 +27,7 @@ export function RemoteRoles() {
         <span>Product</span>
         <span>Data</span>
         <span>Support</span>
-        <Slot id="nav.link.1" className="open-chip" fallback="+ your category — 0.00002 ETH" />
+        <Slot id="nav.link.1" className="open-chip" fallback="+ your category — $1" />
       </nav>
 
       <div className="listings">
@@ -47,7 +47,7 @@ export function RemoteRoles() {
       <div className="foot-links">
         <Slot id="footer.link.1" fallback="Post a role" />
         {' · '}
-        <Slot id="footer.link.2" fallback="Footer link for sale — 0.000008 ETH" />
+        <Slot id="footer.link.2" fallback="Footer link for sale — $1" />
       </div>
 
       <footer className="ex-foot">Remote Roles · a websitekit example board</footer>

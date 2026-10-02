@@ -13,13 +13,13 @@ export function Dispatch() {
       <Slot
         id="announce.bar"
         className="announce"
-        fallback="This strip is for sale — 0.00005 ETH, and every reader sees it first."
+        fallback="This strip is for sale — $1, and every reader sees it first."
       />
 
       <nav className="topnav">
         <span>Archive</span>
         <span>About</span>
-        <Slot id="nav.link.1" fallback="Your link here — 0.00002 ETH" />
+        <Slot id="nav.link.1" fallback="Your link here — $1" />
       </nav>
 
       <header className="masthead">
@@ -81,7 +81,7 @@ export function Dispatch() {
       <footer className="ex-foot">
         <Slot id="footer.credit" fallback="© The Weekly Dispatch. Unsubscribe any time." />
         {' · '}
-        <Slot id="footer.link.1" fallback="Footer link for sale — 0.000008 ETH" />
+        <Slot id="footer.link.1" fallback="Footer link for sale — $1" />
       </footer>
     </div>
   );

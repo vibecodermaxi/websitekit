@@ -8,7 +8,7 @@ import {
   readSettlementCurrency,
   settlementTokenFor,
 } from './settlement';
-import { DEMO_SITE, DEMO_SITE_MAINNET, demoSiteFor } from './addresses';
+import { DEMO_SITE, DEMO_SITE_MAINNET, EXAMPLE_SITES, EXAMPLE_SITES_MAINNET, demoSiteFor, exampleSitesFor } from './addresses';
 
 const NATIVE = '0x0000000000000000000000000000000000000000' as Address;
 const OTHER = '0x5555555555555555555555555555555555555555' as Address;
@@ -70,5 +70,20 @@ describe('demoSiteFor', () => {
   /** Never the testnet board on another chain: a mainnet page reading it gets an empty board. */
   it('answers undefined for a chain with no seeded demo', () => {
     expect(demoSiteFor(1)).toBeUndefined();
+  });
+});
+
+describe('exampleSitesFor', () => {
+  it('names each chain its own four boards, never the other chain\'s', () => {
+    expect(exampleSitesFor(4663)).toBe(EXAMPLE_SITES_MAINNET);
+    expect(exampleSitesFor(46630)).toBe(EXAMPLE_SITES);
+    expect(Object.keys(EXAMPLE_SITES_MAINNET).sort()).toEqual(Object.keys(EXAMPLE_SITES).sort());
+    for (const slug of Object.keys(EXAMPLE_SITES)) {
+      expect(EXAMPLE_SITES_MAINNET[slug as keyof typeof EXAMPLE_SITES_MAINNET]).not.toBe(EXAMPLE_SITES[slug as keyof typeof EXAMPLE_SITES]);
+    }
+  });
+
+  it('answers undefined for a chain with none', () => {
+    expect(exampleSitesFor(1)).toBeUndefined();
   });
 });
