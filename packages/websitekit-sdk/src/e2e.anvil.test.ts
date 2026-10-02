@@ -22,7 +22,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import {
   createPublicClient,
   createWalletClient,
@@ -103,6 +103,14 @@ const RPC = `http://127.0.0.1:${PORT}`;
 const hasAnvil = spawnSync('anvil', ['--version'], { encoding: 'utf-8' }).status === 0;
 const hasArtifacts = fs.existsSync(path.join(contractsOut, 'SlotSite.sol', 'SlotSite.json'));
 const runnable = hasAnvil && hasArtifacts;
+
+/**
+ * Each test here sends several real transactions and waits for their receipts, and on a shared CI
+ * runner that routinely passes vitest's 5s default — seven tests timed out on GitHub's runner on
+ * 2026-10-03 while all passed locally. A timeout is not a finding here; a revert is, and a revert
+ * fails fast regardless of this number.
+ */
+vi.setConfig({ testTimeout: 30_000 });
 
 // **Say why, loudly.** These are the only tests that run real bytecode, and on a fresh clone
 // `out/` does not exist until `forge build` has run — so without this the suite reports a
