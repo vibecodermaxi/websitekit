@@ -3,10 +3,19 @@
 **Status:** complete — every parameter decision is closed (§9). **Written 2026-08-18.**
 Build against this; changes from here need a recorded reason.
 
-This is the document that gates the audit, and the audit gates mainnet. Everything on-chain lands
-in **one implementation, audited once**. `SlotSite` is an EIP-1167 clone of a non-upgradeable
-implementation with terms frozen at `createSite` — there is no second chance, and adding any of
-this later costs a fresh audit plus every publisher who bought into the old implementation.
+This used to read *this is the document that gates the audit, and the audit gates mainnet*.
+**There is no audit — decided 2026-09-18 — so this document gates mainnet directly**, and what the
+audit used to stand in front of is now standing on the spec, the invariant suite and the `prove-*`
+scripts alone. Everything on-chain lands in **one implementation**. `SlotSite` is an EIP-1167 clone
+of a non-upgradeable implementation with terms frozen at `createSite` — there is no second chance,
+and adding any of this later strands every publisher who bought into the old implementation.
+
+**What dropping the audit actually changed, stated rather than implied.** Nothing in this spec is
+weaker for it: every parameter decision in §9 is still closed, `SlotSite` still carries four config
+campaigns of invariants, and the vendored parity reference still pins the TS twin against real
+Solidity. What is weaker is `EscrowVault`, which was going to be brought into scope and now ships
+with unit tests and no invariant campaign — it is outside the frozen core and redeployable, which
+is the mitigation and is not a swept state space. `docs/mainnet_deployment.md` §2.
 
 **Read first:** [`PIVOT-MAP.md`](./PIVOT-MAP.md) for what the product is and why. The v1 design
 record is `../Website/docs/websitekit-sdk-spec.md`, whose eight locked decisions are cited here as
@@ -655,7 +664,7 @@ Every new value, and where it lives. This is the table the audit reads.
 | `askFloor` | mutable by owner | cleared on sale; `[basePrice, maxAskBps × anchor]` |
 
 Carried from v1: `takeBps` / `payoutBps` / `reversionBps` / `maxReversionWeeks` / `cooldownSecs`
-per-site (renamed per §6.3, and now tiered rather than frozen outright — see §6.1); per-slot floor mutable at ±20%/24h; treasury, pause, metadata, royalty, registration freely
+per-site (renamed per §6.3, and now tiered rather than frozen outright — see §6.1); per-slot floor mutable at ±20%/24h; treasury (**unless pinned at `createSite` — §10.4.1**), pause, metadata, royalty, registration freely
 mutable; `protocolBps` immutable in the implementation.
 
 **Why `maxRentalTerm` is per-site rather than a constant:** a conference site wants 3 days, an
@@ -984,6 +993,43 @@ function sweepTreasury() external nonReentrant;
 `withdrawTreasury(amount)` stays for owners who want partial control. This is the difference between
 "log in and click withdraw" and "money arrives every Friday", and it is on-chain, so it lands before
 the audit.
+
+### 10.4.1 `pinTreasury` — the second contract change, and the last one escrow needs — 2026-09-02
+
+`sweepTreasury()` made publisher revenue arrive without a signature, and it made something else
+possible that nobody had named: **an external contract can hold that revenue**, because the sweep
+always pays `treasury` and never the caller. What stopped it was `setTreasury` — `onlyOwner`, no
+lock, no ratchet, no timelock — which hands the switch to the party any escrow guards against.
+
+```solidity
+struct SiteConfig { …; bool openRegistration; bool pinTreasury; uint96 royaltyBps; }
+bool public treasuryPinned;            // packed into the treasury/paused/openRegistration slot
+function setTreasury(address t) external onlyOwner {
+    if (treasuryPinned) revert TreasuryPinned();
+    …
+}
+```
+
+**Frozen at `initialize`, opt-in, off by default.** `pinTreasury: false` reproduces the previous
+behaviour exactly, which is what lets the pin ride in a generation that may never use it. Measured
+at 132 bytes (`21,971 → 22,103`), of which four are the opt-in; the public getter is most of the
+rest and earns its place, because an escrow's whole guarantee is unverifiable unless a third party
+can read `treasuryPinned()` off the site. The pin survives both handover paths.
+
+**Two consequences, both of which are the escrow's to answer rather than this contract's.** `treasury`
+is also the ERC-2981 royalty receiver, so pinning routes marketplace royalties to the same address —
+and on a token site those arrive as NATIVE value, which `receive()` here refuses (§1.2) but a vault
+must accept. And on a native site `_pay` is `.call{value:}`, so a board pinned to an address that
+cannot receive is a permanent brick, refused by nothing at creation: whatever creates pinned boards
+has to prove the target accepts value, and that check cannot live here.
+
+**Everything else is outside this contract, by design** — the clock, the cap, who claims, who is
+paid — because a site is frozen and a vault is not. The invariant in §8 is unchanged: escrow holds
+money that has already LEFT the site through `sweepTreasury`, so it is not a fourth term in
+`sum(pendingWithdrawals) + treasuryBalance + totalEscrowedRent == balance`. The escrow's own ledger
+(`bookedTotal + pendingTotal + reserve + unbooked == balance`) is asserted in its own suite. The
+contracts are `EscrowVault.sol`, `EscrowFactory.sol` and `Attestor.sol`, each with the argument in
+its own header; the operator-side design record stays private.
 
 ### 10.5 Custody — the decision underneath
 

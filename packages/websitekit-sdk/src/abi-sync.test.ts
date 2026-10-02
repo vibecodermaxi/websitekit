@@ -24,6 +24,9 @@ const TARGETS: Array<[solFile: string, contractName: string, committed: string]>
   ['SlotFactory.sol', 'SlotFactory', 'SlotFactory.json'],
   ['SlotReader.sol', 'SlotReader', 'SlotReader.json'],
   ['RentalsLib.sol', 'RentalsLib', 'RentalsLib.json'],
+  ['EscrowVault.sol', 'EscrowVault', 'EscrowVault.json'],
+  ['EscrowFactory.sol', 'EscrowFactory', 'EscrowFactory.json'],
+  ['Attestor.sol', 'Attestor', 'Attestor.json'],
 ];
 
 describe('committed ABIs match the forge artifacts', () => {

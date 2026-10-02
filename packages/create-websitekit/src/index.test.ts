@@ -93,6 +93,33 @@ describe('the generated project', () => {
     for (const key of keys) expect(() => assertValidSlotKey(key)).not.toThrow();
   });
 
+  /**
+   * The chain, the addresses and the settlement token come from the SDK. A literal in the template
+   * is a second copy of a deployment record, and the template is exactly where one went stale: it
+   * defined testnet by hand for a month after mainnet existed.
+   */
+  it('holds no chain literal of its own', () => {
+    // Comments may name a chain; code may not. Stripped so a note explaining the switch survives.
+    const chain = fs
+      .readFileSync(path.join(projectDir, 'lib/chain.ts'), 'utf-8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(chain).not.toMatch(/\b4663\b|\b46630\b|https?:\/\/|0x[0-9a-fA-F]{40}/);
+  });
+
+  /** A name the template imports and the SDK does not export is a crash on the first `pnpm dev`. */
+  it('imports only what the SDK exports', async () => {
+    const sdk = await import('@websitekit/sdk');
+    for (const file of ['lib/chain.ts', 'websitekit.config.ts', 'scripts/deploy.ts']) {
+      const source = fs.readFileSync(path.join(projectDir, file), 'utf-8');
+      for (const match of source.matchAll(/import \{([^}]+)\} from '@websitekit\/sdk'/g)) {
+        for (const name of match[1]!.split(',').map((n) => n.trim()).filter((n) => n && !n.startsWith('type '))) {
+          expect(sdk, `${file}: ${name}`).toHaveProperty(name);
+        }
+      }
+    }
+  });
+
   /** Every slot referenced by the page must exist in the config, or `<Slot>` throws at render. */
   it('only renders slots that are in the config', () => {
     const config = fs.readFileSync(path.join(projectDir, 'websitekit.config.ts'), 'utf-8');

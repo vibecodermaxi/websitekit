@@ -18,10 +18,11 @@ Every read goes through `SlotReader`, a deliberately replaceable deployment — 
 
 ```ts
 import { createPublicClient, http } from 'viem';
-import { readSlots, readSiteTerms, ROBINHOOD_TESTNET, DEMO_SITE } from '@websitekit/sdk';
+import { readSlots, readSiteTerms, deploymentFor } from '@websitekit/sdk';
 
 const client = createPublicClient({ chain, transport: http() });
-const ref = { site: DEMO_SITE, reader: ROBINHOOD_TESTNET.reader! };
+// 4663 is Robinhood Chain mainnet; 46630 is its testnet. `deploymentFor` throws for any other id.
+const ref = { site: '0xYourBoard', reader: deploymentFor(4663).reader! };
 
 const terms = await readSiteTerms(client, ref);
 const slots = await readSlots(client, ref, ['hero.headline', 'hero.image']);
@@ -46,6 +47,29 @@ await walletClient.writeContract(request);
 
 This SDK never holds a key. Every `build*` returns a request object your wallet layer sends.
 
+## Escrow
+
+Optional, and deployed nowhere yet. A site created through `EscrowFactory` has its `treasury`
+pinned to an `EscrowVault`; the publisher's cut waits a window there, and a slot holder on a page
+that goes dark can hand the slot back for what they paid.
+
+```ts
+import {
+  buildCreateEscrowedSite, // the factory names the OWNER; treasury and pinTreasury are not options
+  buildBook, buildRelease, buildVaultWithdrawFor, // permissionless — each pays a recorded party
+  buildApproveVault, buildClaim,                  // the holder's: approve the vault, then surrender
+  readVault, readDeposits, readClaimable, readEscrowBind,
+} from '@websitekit/sdk';
+
+const bind = await readEscrowBind(client, site, vault);
+bind.escrowed; // treasury == vault AND pinned AND vault.site() == site — check BOTH directions
+```
+
+`buildClaim` moves the holder's token into the vault before a unit is credited, so `buildApproveVault`
+has to land first, on the site. `readClaimable` is the vault's own verdict and folds every refusal
+into a zero; `readVault` carries the clock and the ledger. `buildMarkDark`/`buildClearDark` are the
+attestor's and accepted from nobody else.
+
 ## Three rules worth knowing up front
 
 - **`settlementToken` is required on every builder that moves money.** There is no default: a
@@ -58,7 +82,8 @@ This SDK never holds a key. Every `build*` returns a request object your wallet 
 
 ## Status
 
-Testnet only, unaudited, and the contracts are **not upgradeable** — a site is a clone frozen to the
+Live on Robinhood Chain mainnet, where boards settle in USDG and the money is real, and on its
+testnet. Unaudited, and the contracts are **not upgradeable** — a site is a clone frozen to the
 implementation it was created from. Experimental software.
 
 MIT © websitekit

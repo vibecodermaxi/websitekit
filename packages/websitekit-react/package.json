@@ -1,6 +1,6 @@
 {
   "name": "@websitekit/react",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "React bindings for websitekit \u2014 <Slot>, useSlot, useBuy and the default buy dialog.",
   "license": "MIT",
   "repository": {
@@ -56,7 +56,7 @@
   "peerDependencies": {
     "react": "^19",
     "viem": "^2",
-    "@websitekit/sdk": "^0.1.0"
+    "@websitekit/sdk": "^0.2.0"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

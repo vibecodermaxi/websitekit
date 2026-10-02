@@ -12,18 +12,27 @@
  * app already has, so `onConfirm` receives a built request and the app decides.
  */
 import { useEffect, type ReactNode } from 'react';
-import { formatEther } from 'viem';
 import type { Address } from 'viem';
 
+import { formatAmount } from './format';
 import { useBuy, type BuyQuote } from './useBuy';
-import type { buildBuyFrom } from '@websitekit/sdk';
+import { isNativeSettlement, type approvalFor, type buildBuyFrom } from '@websitekit/sdk';
 
 export interface BuyDialogProps {
   slotId: string;
   open: boolean;
   onClose: () => void;
-  /** Receives the request built from the quote the user was actually shown. */
-  onConfirm: (request: NonNullable<ReturnType<typeof buildBuyFrom>>, quote: BuyQuote) => void | Promise<void>;
+  /**
+   * Receives the request built from the quote the user was actually shown.
+   *
+   * On a token-settled board `approval` is the ERC-20 approval to send — and wait for — BEFORE
+   * `request`; it is `null` on a native board. Sending the buy without it reverts.
+   */
+  onConfirm: (
+    request: NonNullable<ReturnType<typeof buildBuyFrom>>,
+    quote: BuyQuote,
+    approval: ReturnType<typeof approvalFor>,
+  ) => void | Promise<void>;
   /** Buy on someone else's behalf — §10.7's sponsored path. */
   recipient?: Address;
   children?: (state: ReturnType<typeof useBuy>) => ReactNode;
@@ -31,7 +40,7 @@ export interface BuyDialogProps {
 
 export function BuyDialog({ slotId, open, onClose, onConfirm, recipient, children }: BuyDialogProps) {
   const buy = useBuy(slotId);
-  const { phase, quote, error, prepare, buildRequest, reset } = buy;
+  const { phase, quote, error, prepare, buildRequest, buildApproval, reset } = buy;
 
   useEffect(() => {
     if (open && phase === 'idle') void prepare();
@@ -67,11 +76,11 @@ export function BuyDialog({ slotId, open, onClose, onConfirm, recipient, childre
             <>
               <p>
                 Take <code>{slotId}</code> for{' '}
-                <strong>{formatEther(quote.netCost)} ETH</strong> net
+                <strong>{formatAmount(quote.netCost, quote.currency)}</strong> net
               </p>
               <p>
-                You pay {formatEther(quote.charged)} ETH now and inherit{' '}
-                {formatEther(quote.unaccruedRent)} ETH of rent already escrowed on this slot, which
+                You pay {formatAmount(quote.charged, quote.currency)} now and inherit{' '}
+                {formatAmount(quote.unaccruedRent, quote.currency)} of rent already escrowed on this slot, which
                 streams to you over the rest of the tenancy.
                 {quote.isFreeCarry
                   ? ' That is more than the purchase price: this position pays for itself.'
@@ -85,7 +94,7 @@ export function BuyDialog({ slotId, open, onClose, onConfirm, recipient, childre
           ) : (
             <p>
               {quote.isClaim ? 'Claim' : 'Take'} <code>{slotId}</code> for{' '}
-              <strong>{formatEther(quote.charged)} ETH</strong>
+              <strong>{formatAmount(quote.charged, quote.currency)}</strong>
             </p>
           )}
 
@@ -102,7 +111,7 @@ export function BuyDialog({ slotId, open, onClose, onConfirm, recipient, childre
           */}
           {!quote.isClaim && (
             <p>
-              The current owner receives {formatEther(quote.payout)} ETH — never less than this
+              The current owner receives {formatAmount(quote.payout, quote.currency)} — never less than this
               slot&rsquo;s floor, which is guaranteed. Whether it beats what they paid is not: the
               payout tracks the slot&rsquo;s floor now, and a price that has reverted since they
               bought can leave them below it.
@@ -115,11 +124,23 @@ export function BuyDialog({ slotId, open, onClose, onConfirm, recipient, childre
           */}
           <p>Anyone can take this slot from you later at a formula price. That is the mechanic.</p>
 
+          {/*
+            Two wallet prompts rather than one on a token board, said before the first appears — a
+            second prompt nobody mentioned reads as something going wrong.
+          */}
+          {!isNativeSettlement(quote.settlementToken) && (
+            <p>
+              Your wallet will ask twice: first to let this site spend {quote.currency.symbol} — up to
+              the price above plus a small margin in case it moves before your purchase lands — then
+              for the purchase itself.
+            </p>
+          )}
+
           <button
             type="button"
             onClick={() => {
               const request = buildRequest({ recipient });
-              if (request) void onConfirm(request, quote);
+              if (request) void onConfirm(request, quote, buildApproval(request));
             }}
           >
             Confirm

@@ -35,6 +35,9 @@ export const TARGETS = [
   ['SlotFactory.sol', 'SlotFactory', 'SlotFactory.json'],
   ['SlotReader.sol', 'SlotReader', 'SlotReader.json'],
   ['RentalsLib.sol', 'RentalsLib', 'RentalsLib.json'],
+  ['EscrowVault.sol', 'EscrowVault', 'EscrowVault.json'],
+  ['EscrowFactory.sol', 'EscrowFactory', 'EscrowFactory.json'],
+  ['Attestor.sol', 'Attestor', 'Attestor.json'],
 ];
 
 let wrote = 0;

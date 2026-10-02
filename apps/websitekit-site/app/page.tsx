@@ -83,7 +83,7 @@ export default function Home() {
             <code className="install-cmd">{CREATE_COMMAND}</code>
             <p className="install-note">
               Runs with no credentials — the scaffold renders a live, already-traded board on
-              Robinhood Chain testnet.
+              Robinhood Chain mainnet, priced in USDG.
             </p>
             <ul className="install-pkgs">
               {PACKAGES.map((pkg) => (
@@ -131,7 +131,7 @@ export default function Home() {
 
         <h2 id="examples">Reference inventory configurations</h2>
         <p className="section-note">
-          Four contracts on Robinhood Chain testnet, cloned from the same implementation. Every price
+          Four boards on the Robinhood Chain testnet, cloned from the same implementation. Every price
           and holder below is read from the chain when the page renders. They differ in the only two
           dimensions that vary between publishers: what gets carved into inventory, and the terms
           frozen at <code>createSite</code>. Each page ends with per-position revenue computed from
@@ -152,7 +152,7 @@ export default function Home() {
 
       <div className="wrap">
         <footer className="bottom">
-          Robinhood Chain testnet (46630) · unaudited, and no audit is planned · experimental
+          Live on Robinhood Chain mainnet · unaudited, and no audit is planned · experimental
           software ·{' '}
           <a href={GITHUB_URL}>GitHub</a> ·{' '}
           <a href={PACKAGES[1].url}>npm</a>

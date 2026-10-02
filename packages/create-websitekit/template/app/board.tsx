@@ -61,11 +61,16 @@ export function Board({
           slotId={buying}
           open
           onClose={() => setBuying(null)}
-          onConfirm={async (request) => {
+          onConfirm={async (request, _quote, approval) => {
             // Wire this to whatever wallet layer you already have — wagmi, wallet-adapter, a raw
-            // window.ethereum call. `request` is a viem writeContract argument built from the exact
-            // quote the dialog showed, so do not re-read anything before sending it.
-            console.log('send this with your wallet:', request);
+            // window.ethereum call. Both are viem writeContract arguments built from the exact quote
+            // the dialog showed, so do not re-read anything before sending them.
+            //
+            // On a token board (USDG on mainnet) `approval` comes FIRST: send it, wait for its
+            // receipt, then send `request`. Sent the other way round the purchase reverts. It is
+            // `null` on a board that settles natively.
+            if (approval) console.log('1. Send this approval with your wallet:', approval);
+            console.log(approval ? '2. Then send this:' : 'Send this with your wallet:', request);
             setBuying(null);
           }}
         />

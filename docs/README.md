@@ -17,8 +17,8 @@ pnpm create websitekit my-site
 cd my-site && pnpm install && pnpm dev
 ```
 
-No wallet, no credentials, no API key. The page reads a live board off Robinhood Chain testnet and
-renders.
+No wallet, no credentials, no API key. The page reads a live board off Robinhood Chain mainnet and
+renders. Set `NEXT_PUBLIC_WEBSITEKIT_CHAIN_ID=46630` to use the free testnet instead.
 
 ---
 
@@ -309,6 +309,19 @@ every convenience view and is deliberately **not** frozen: the read surface can 
 redeploying a single site, which is why reads take a `SiteRef` (`{ site, reader }`) rather than a
 bare address.
 
+**Three optional contracts sit beside those four, and none of them is frozen.** A site created with
+`pinTreasury` has its `treasury` fixed at creation — `setTreasury` reverts for the owner as much as
+for anybody else — which is the one thing an escrow needs from the frozen core. `EscrowFactory`
+creates a site pinned to an `EscrowVault` it clones in the same transaction and binds the two;
+the vault holds the publisher's cut of every sale for a window, releases it to whoever owned the
+site when it was booked, and lets a slot holder **surrender** their slot for up to what they paid
+if an attestor marks the page dark inside the window. The clock pauses while dark rather than
+clearing, so re-adding a tag for one afternoon buys a publisher nothing, and money that matured
+before the lights went out is theirs whatever a slow keeper did. `Attestor` is the one-slot
+registry the attestor key is read from, so the key can rotate without a new vault. Who runs the
+attestor, and on what evidence, is a deployment's decision and not the protocol's. Nothing here is
+deployed yet.
+
 **Every site is its own contract.** Not a row in a shared registry — an EIP-1167 clone with its own
 address, its own ERC-721 collection and its own funds. A defect in one site's treasury cannot reach
 another's, because they are different contracts. This is also what makes the publisher's position
@@ -389,27 +402,32 @@ converts; one that renders blank reads as breakage.
 
 ## Reference deployments
 
-Robinhood Chain testnet (46630). One chain at v1, deliberately — every chain needs its own
-implementation deploy, its own audit sign-off and its own address, and multi-chain is a support
-surface rather than a feature.
+**Robinhood Chain mainnet (4663)**, where boards settle in USDG, and **Robinhood Chain testnet
+(46630)**, where they settle in tUSD, a stand-in dollar anybody can mint. Both carry the same
+generation: the four core contracts and the three escrow contracts. All seven on mainnet are
+verified on Sourcify as exact matches.
 
 The current addresses live in
 [`packages/websitekit-sdk/src/addresses.ts`](../packages/websitekit-sdk/src/addresses.ts) and are
-exported as `ROBINHOOD_TESTNET` — read them from there rather than copying them, because a contract
-change means a new generation and this document will not be the thing that gets updated first.
+exported as `ROBINHOOD_MAINNET` / `ROBINHOOD_TESTNET` (core), `ROBINHOOD_MAINNET_ESCROW` /
+`ROBINHOOD_TESTNET_ESCROW` (escrow), and through `deploymentFor(chainId)` and
+`escrowDeploymentFor(chainId)`. The settlement token per chain is `settlementTokenFor(chainId)`.
+Read them from there rather than copying them, because a contract change means a new generation and
+this document will not be the thing that gets updated first.
 
-All four contracts are verified. Because every site is a canonical EIP-1167 clone, Blockscout
+Because every site is a canonical EIP-1167 clone, Blockscout
 auto-detects the proxy — verifying the implementation once gives *every* site cloned from it a
 readable contract page, permanently. A clone reporting `abi: 0` is how Blockscout models a proxy,
 not a failure.
 
-**Nothing here has been audited**, and the contracts are not upgradeable. Treat it as experimental.
+**Nothing here has been audited and no audit is planned**, and the contracts are not upgradeable.
+On mainnet the money is real. Treat it as experimental.
 
 ---
 
 ## Reference inventory configurations
 
-Four boards, live on testnet, cloned from the same implementation. They differ in the dimensions
+Four boards, live on the testnet, cloned from the same implementation. They differ in the dimensions
 that actually vary between publishers: **what is carved into inventory**, **the take economics**, and
 **the rent economics**. Their reversion windows span 4 to 52 weeks — the full range the contract
 permits — and their rent fees span 15% to 40% over terms from 14 to 365 days. Addresses are in

@@ -82,6 +82,7 @@ abstract contract SlotSiteInvariantBase is Test {
             siteRentBps: 2_500,
             maxRentalTerm: 30 days,
             openRegistration: false,
+            pinTreasury: false,
             royaltyBps: 500
         });
     }

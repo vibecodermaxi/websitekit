@@ -57,6 +57,15 @@ export const ContentKind = {
   Link: 2,
   Image: 3,
   Video: 4,
+  /**
+   * A body of some other kind, with a destination attached — see `encodeLinked`.
+   *
+   * **A wrapper rather than a product type**, because the decision it encodes was *a link is
+   * optional and can be added to any slot*, and a thing that can be added to anything is a
+   * decoration on content rather than a kind of it. The alternative — `LinkedImage`, then
+   * `LinkedVideo` — spends one id per pairing and reopens on the third ask.
+   */
+  Linked: 5,
 } as const;
 
 export type ContentKind = (typeof ContentKind)[keyof typeof ContentKind];
@@ -140,12 +149,152 @@ export function encodeText(text: string): EncodedContent {
   return encodeContent(ContentKind.Text, utf8.encode(text));
 }
 
-export function encodeLink(url: string): EncodedContent {
-  return encodeContent(ContentKind.Link, utf8.encode(url));
+/**
+ * A link payload is JSON — `{"href": "…"}`, optionally with a `"label"`.
+ *
+ * **It encoded a bare UTF-8 URL string until 2026-08-23, and every consumer disagreed with it.**
+ * `@websitekit/react`'s `Slot.tsx` parses JSON and reads `href`/`label`; `@websitekit/loader`'s
+ * `renderLink` does the same; `seed-content.ts` and `seed-example-content.ts` both WRITE that shape,
+ * so the convention on chain was never in doubt. This helper was the only thing that disagreed, and
+ * nothing called it — so the disagreement was published, documented, listed in the generated API
+ * reference, and had never once rendered.
+ *
+ * The failure it would have produced is the specific one this content scheme exists to prevent: the
+ * bytes verify, the hash matches, the object decodes, and then the renderer finds no JSON and falls
+ * back to the publisher's own content. **A silent blank, with nothing anywhere reporting an error.**
+ *
+ * Fixing it is a breaking change to a function with no callers, which is the cheapest kind, and it
+ * is not a contract change — content encoding is entirely client-side and the on-chain hash is over
+ * whatever bytes were produced, so existing links are unaffected.
+ *
+ * **Scheme policy is deliberately NOT here.** `javascript:` is refused at RENDER, by the loader's
+ * `safeHref` and by nothing else, because the renderer is the security boundary — it is the only
+ * place that sees content nobody in this repo wrote. Restating that list here would create a second
+ * definition of "safe" that can drift from the one actually enforced, and the drifting copy would be
+ * the reassuring one. An href refused at render falls back to the publisher's own markup, which is
+ * the designed behaviour rather than a gap.
+ *
+ * @param href Where the link points. Relative hrefs are legal; the renderer resolves them.
+ * @param label What it says. Omitted, both renderers show the href itself.
+ */
+export function encodeLink(href: string, label?: string): EncodedContent {
+  if (typeof href !== 'string' || href.trim() === '') {
+    throw new MalformedContentError('a link needs an href');
+  }
+  // `JSON.stringify` drops an undefined value, so an omitted label produces `{"href":"…"}` — which
+  // is what both renderers already handle, rather than a `"label":null` neither of them checks for.
+  return encodeContent(ContentKind.Link, utf8.encode(JSON.stringify({ href, label })));
 }
 
 export function encodeImage(bytes: Uint8Array): EncodedContent {
   return encodeContent(ContentKind.Image, bytes);
+}
+
+/**
+ * The wrapper's payload layout. Two bytes of length rather than one because 255 is inside the range
+ * of URLs people actually paste, and rather than four because the object cap is 1 MiB and a href
+ * longer than 64 KiB is not a href.
+ */
+const LINKED_HREF_LENGTH_BYTES = 2;
+const MAX_HREF_BYTES = 0xffff;
+
+/**
+ * Kinds that already carry a destination of their own, and therefore may never be wrapped.
+ *
+ * **This is the twin trap refused at the door.** `Text` wrapped in a link and `Link` itself would
+ * be two encodings of one thing, with nothing comparing them — and unlike the four twins this repo
+ * pins with shared fixtures, this one is avoidable by construction, because both ends are in this
+ * function. `Link` is what a text slot with a destination is.
+ */
+const NEVER_WRAPPED: readonly number[] = [ContentKind.Text, ContentKind.Link, ContentKind.Linked];
+
+export interface DecodedLinked {
+  /** The kind of the body — never `Linked`, never `Text`, never `Link`. */
+  innerKind: number;
+  /** Where it points, exactly as written. **Scheme policy is the renderer's**, not this function's. */
+  href: string;
+  /** The body, to be rendered as `innerKind` says. */
+  body: Uint8Array;
+}
+
+/**
+ * Wraps a body of another kind with a destination.
+ *
+ *     payload = [innerKind:u8][hrefLen:u16 big-endian][href utf8][body…]
+ *
+ * **Nesting is refused rather than supported.** One link is a decoration; two is a malformed object,
+ * and a decoder that recurses on bytes somebody else wrote is a decoder with a depth limit to
+ * argue about. `decodeLinked` refuses it too, so a hand-built object cannot smuggle one past this.
+ *
+ * **No scheme check here, deliberately, and it is `encodeLink`'s reasoning unchanged:** the
+ * renderer is the security boundary because it is the only place that sees content nobody in this
+ * repo wrote, and a second list of safe schemes would be a second definition of "safe" that can
+ * drift — with the drifting copy being the reassuring one. A href refused at render falls back to
+ * the publisher's own markup, which is the designed behaviour and not a gap.
+ */
+export function encodeLinked(innerKind: number, href: string, body: Uint8Array): EncodedContent {
+  assertByte(innerKind, 'innerKind');
+  if (NEVER_WRAPPED.includes(innerKind)) {
+    throw new MalformedContentError(
+      `kind ${innerKind} already carries a destination — a text slot with a link is ContentKind.Link`,
+    );
+  }
+  if (typeof href !== 'string' || href.trim() === '') {
+    throw new MalformedContentError('a linked object needs an href');
+  }
+
+  const hrefBytes = utf8.encode(href);
+  if (hrefBytes.length > MAX_HREF_BYTES) {
+    throw new MalformedContentError(`href is ${hrefBytes.length} bytes, over the ${MAX_HREF_BYTES}-byte field`);
+  }
+
+  const payload = new Uint8Array(1 + LINKED_HREF_LENGTH_BYTES + hrefBytes.length + body.length);
+  payload[0] = innerKind;
+  payload[1] = (hrefBytes.length >>> 8) & 0xff;
+  payload[2] = hrefBytes.length & 0xff;
+  payload.set(hrefBytes, 3);
+  payload.set(body, 3 + hrefBytes.length);
+
+  return encodeContent(ContentKind.Linked, payload);
+}
+
+/**
+ * Reads a `Linked` payload back. Throws `MalformedContentError` on anything a renderer should treat
+ * as fallback — a truncated header, a length that runs past the end, a body kind that may not be
+ * wrapped, or a href that is not UTF-8.
+ *
+ * The length is checked against the payload it actually has rather than trusted, which is
+ * `sniffImage`'s rule applied to our own format: the bytes decide, never the field claiming to
+ * describe them.
+ */
+export function decodeLinked(payload: Uint8Array): DecodedLinked {
+  const header = 1 + LINKED_HREF_LENGTH_BYTES;
+  if (payload.length < header) {
+    throw new MalformedContentError(`linked payload is ${payload.length} bytes, shorter than its 3-byte header`);
+  }
+
+  const innerKind = payload[0]!;
+  if (innerKind === 0) throw new MalformedContentError('kind 0 is reserved and never valid');
+  if (NEVER_WRAPPED.includes(innerKind)) {
+    throw new MalformedContentError(`kind ${innerKind} may not be wrapped — see encodeLinked`);
+  }
+
+  const hrefLength = (payload[1]! << 8) | payload[2]!;
+  const bodyStart = header + hrefLength;
+  if (bodyStart > payload.length) {
+    throw new MalformedContentError(`href claims ${hrefLength} bytes, past the end of a ${payload.length}-byte payload`);
+  }
+
+  // `fatal`, so invalid UTF-8 throws instead of arriving as replacement characters in a URL.
+  let href: string;
+  try {
+    href = new TextDecoder('utf-8', { fatal: true }).decode(payload.subarray(header, bodyStart));
+  } catch {
+    throw new MalformedContentError('href is not valid UTF-8');
+  }
+  if (href === '') throw new MalformedContentError('a linked object needs an href');
+
+  return { innerKind, href, body: payload.subarray(bodyStart) };
 }
 
 export interface DecodedContent {

@@ -15,6 +15,7 @@ import {
   buildRent,
   buildExtendRental,
   buildApproveSettlement,
+  approvalFor,
   buildSweepTreasury,
 } from './writes';
 import { slotKey } from './keys';
@@ -334,5 +335,30 @@ describe('buildCreateSite', () => {
     const request = buildCreateSite({ ...SITE_BASE, slots: { 'hero.headline': 10n } });
     expect(request.args[1]).toEqual([slotKey('hero.headline')]);
     expect(request.args[2]).toEqual([10n]);
+  });
+});
+
+describe('approvalFor', () => {
+  /**
+   * The allowance must cover the MAX price the buy authorises, not the quote — otherwise a price
+   * that moved within slippage reverts after two signatures. Asserted against a slippage large
+   * enough that `charged` and `maxPrice` cannot be confused.
+   */
+  it('approves exactly the maxPrice the buy request carries, for the site', () => {
+    const buy = buildBuy({ ...BASE, settlementToken: TOKEN, slippageBps: 5_000n });
+    const approval = approvalFor(buy, TOKEN)!;
+    expect(approval.address).toBe(TOKEN);
+    expect(approval.args).toEqual([SITE, 1_500_000n]);
+  });
+
+  /** `buyFor` puts the recipient first, so maxPrice sits one argument later. */
+  it('reads maxPrice from the right argument of a buyFor', () => {
+    const buy = buildBuy({ ...BASE, settlementToken: TOKEN, slippageBps: 5_000n, recipient: ALICE });
+    expect(buy.functionName).toBe('buyFor');
+    expect(approvalFor(buy, TOKEN)!.args).toEqual([SITE, 1_500_000n]);
+  });
+
+  it('is null on a native site — there is nothing to approve', () => {
+    expect(approvalFor(buildBuy(BASE), NATIVE)).toBeNull();
   });
 });

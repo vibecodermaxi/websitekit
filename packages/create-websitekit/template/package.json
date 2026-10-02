@@ -10,8 +10,8 @@
     "deploy:site": "node --env-file-if-exists=.env --import tsx/esm scripts/deploy.ts"
   },
   "dependencies": {
-    "@websitekit/react": "^0.1.0",
-    "@websitekit/sdk": "^0.1.0",
+    "@websitekit/react": "^0.2.0",
+    "@websitekit/sdk": "^0.2.0",
     "next": "15.5.20",
     "react": "19.1.0",
     "react-dom": "19.1.0",

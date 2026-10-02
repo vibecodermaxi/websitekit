@@ -20,12 +20,15 @@
  */
 import { useCallback, useState } from 'react';
 import {
+  approvalFor,
   buildBuyFrom,
   computeBuyBreakdown,
   economicsFromTerms,
   readBuyContext,
+  readSettlementCurrency,
   readSiteTerms,
   type BuyContext,
+  type SettlementCurrency,
 } from '@websitekit/sdk';
 import type { Address } from 'viem';
 
@@ -43,6 +46,11 @@ export interface BuyQuote {
   isClaim: boolean;
   /** `0x0` for native settlement. Carried so `buildRequest` sends the right `msg.value`. */
   settlementToken: Address;
+  /**
+   * What every amount in this quote is counted in — `ETH`/18 natively, the token's own symbol and
+   * decimals otherwise. Read with the quote, so a dialog never formats a 6-decimal price as 18.
+   */
+  currency: SettlementCurrency;
   /**
    * Escrowed rent this buyer would INHERIT (§2.4.2).
    *
@@ -69,6 +77,11 @@ export interface UseBuyResult {
    * exists to prevent.
    */
   buildRequest: (options?: { recipient?: Address; slippageBps?: bigint }) => ReturnType<typeof buildBuyFrom> | null;
+  /**
+   * The ERC-20 approval a built request needs sent FIRST, or `null` on a native site. Sized to the
+   * request's own `maxPrice`, so pass the request you are about to send.
+   */
+  buildApproval: (request: ReturnType<typeof buildBuyFrom>) => ReturnType<typeof approvalFor>;
   reset: () => void;
 }
 
@@ -94,6 +107,7 @@ export function useBuy(key: string): UseBuyResult {
       // this could be cached — but a cached value belonging to a DIFFERENT site the app also
       // renders is a real bug, and one call is cheaper than the invalidation logic that avoids it.
       const terms = await readSiteTerms(client, config.ref, context.blockNumber);
+      const currency = await readSettlementCurrency(client, terms.settlementToken, context.blockNumber);
 
       const breakdown = computeBuyBreakdown(
         context.slot.lastPrice,
@@ -119,6 +133,7 @@ export function useBuy(key: string): UseBuyResult {
         payout: breakdown.payout,
         isClaim: context.slot.isUnclaimed,
         settlementToken: terms.settlementToken,
+        currency,
         unaccruedRent: context.slot.unaccruedRent,
         netCost: context.slot.netCost,
         isFreeCarry: context.slot.isFreeCarry,
@@ -139,6 +154,11 @@ export function useBuy(key: string): UseBuyResult {
     [config.address, quote],
   );
 
+  const buildApproval = useCallback(
+    (request: ReturnType<typeof buildBuyFrom>) => (quote ? approvalFor(request, quote.settlementToken) : null),
+    [quote],
+  );
+
   const reset = useCallback(() => {
     setPhase('idle');
     setQuote(null);
@@ -146,7 +166,7 @@ export function useBuy(key: string): UseBuyResult {
     void refetch();
   }, [refetch]);
 
-  return { phase, quote, error, prepare, buildRequest, reset };
+  return { phase, quote, error, prepare, buildRequest, buildApproval, reset };
 }
 
 function elapsedWeeks(context: BuyContext): bigint {

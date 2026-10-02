@@ -1,0 +1,11 @@
+# Security reports must not arrive as public issues. For frozen bytecode a disclosure is permanent —
+# a deployed clone keeps its implementation forever and cannot be patched — so the blank-issue route
+# is closed and the security link is put where somebody about to type one will see it.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/vibecodermaxi/websitekit/security/advisories/new
+    about: Private disclosure. Please do NOT open a public issue for anything exploitable.
+  - name: Protocol design and parameters
+    url: https://websitekit.org/docs/protocol
+    about: Why takes, reversion, rent and the ask work the way they do. Most "is this a bug?" questions are answered here.

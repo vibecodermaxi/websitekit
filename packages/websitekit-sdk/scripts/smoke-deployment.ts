@@ -23,8 +23,7 @@
  * It leaves a real site on chain. That is deliberate — it is evidence, and on testnet it costs
  * nothing to keep.
  */
-import { createPublicClient, createWalletClient, defineChain, formatEther, http, parseEther } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { formatEther, parseEther } from 'viem';
 
 import {
   buildBuyFrom,
@@ -39,31 +38,26 @@ import {
   quoteRent,
   type SiteRef,
 } from '../src/index';
+import {
+  activeChain,
+  deployer as ownerAccount,
+  deployerWallet,
+  describeChain,
+  factory,
+  publicClient,
+  reader,
+  taker as tenantAccount,
+  takerWallet,
+} from './lib/chain';
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set — run \`set -a && . .env && set +a\` first`);
-  return value;
-}
+const FACTORY = factory();
+const READER = reader();
 
-const robinhoodTestnet = defineChain({
-  id: 46630,
-  name: 'Robinhood Chain Testnet',
-  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: [required('TESTNET_RPC_URL')] } },
-  blockExplorers: { default: { name: 'Blockscout', url: 'https://explorer.testnet.chain.robinhood.com' } },
-  testnet: true,
-});
+const owner = ownerAccount();
+const tenant = tenantAccount();
 
-const FACTORY = required('WEBSITEKIT_FACTORY') as `0x${string}`;
-const READER = required('WEBSITEKIT_READER') as `0x${string}`;
-
-const owner = privateKeyToAccount(required('TESTNET_DEPLOYER_KEY') as `0x${string}`);
-const tenant = privateKeyToAccount(required('TESTNET_TAKER_KEY') as `0x${string}`);
-
-const publicClient = createPublicClient({ chain: robinhoodTestnet, transport: http() });
-const ownerWallet = createWalletClient({ account: owner, chain: robinhoodTestnet, transport: http() });
-const tenantWallet = createWalletClient({ account: tenant, chain: robinhoodTestnet, transport: http() });
+const ownerWallet = deployerWallet();
+const tenantWallet = takerWallet();
 
 async function send(wallet: typeof ownerWallet, label: string, request: Record<string, unknown>) {
   const hash = await wallet.writeContract(request as never);
@@ -79,7 +73,8 @@ async function send(wallet: typeof ownerWallet, label: string, request: Record<s
 const FLOOR = parseEther('0.0002');
 const KEYS = { 'hero.headline': FLOOR, 'hero.image': FLOOR };
 
-console.log(`\nsmoke test against factory ${FACTORY}`);
+console.log(`\n${describeChain()}`);
+console.log(`smoke test against factory ${FACTORY}`);
 console.log(`owner  ${owner.address} — ${formatEther(await publicClient.getBalance({ address: owner.address }))} ETH`);
 console.log(`tenant ${tenant.address} — ${formatEther(await publicClient.getBalance({ address: tenant.address }))} ETH\n`);
 
@@ -175,5 +170,5 @@ console.log(`
   predicted, and reads back through both the site and the reader.
 
   site ${site}
-  ${robinhoodTestnet.blockExplorers.default.url}/address/${site}
+  ${activeChain.blockExplorers.default.url}/address/${site}
 `);

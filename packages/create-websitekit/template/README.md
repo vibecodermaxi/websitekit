@@ -16,13 +16,26 @@ That works with no credentials and no wallet. The page reads its board from the 
 - An unclaimed slot costs its **floor**.
 - Taking one from its current owner costs **1.4×** the effective floor.
 - The displaced owner is paid **1.15× the effective floor** — always at least the floor itself.
-- A slot nobody has touched **decays** back toward its floor, ~10% a week, so a stale slot gets
-  cheap again.
+- A slot nobody has touched **reverts** toward its floor, 3% a week, so a stale slot gets cheaper.
 
-The payout is 1.15× the *current* floor, not 1.15× what you paid. Taken within a week you profit
-(~1.035×); after two weeks of decay you are down (~0.93×). A claimer at the floor is always made
-whole; a taker who paid above the floor and then held can end up underwater. Holding has a carrying
-cost — that is what stops one buyer parking on the good real estate forever.
+The effective floor is what the holder paid, reverted by the weeks since — never below the floor.
+So the payout is 1.15× the *current* effective floor, not 1.15× what you paid: taken in the first
+week you get 1.15× back; after five weeks of reversion it is ~0.99×, a little under what you paid.
+The guarantee that survives every case is that a displaced owner gets at least the floor. Holding
+has a carrying cost — that is what stops one buyer parking on the good real estate forever.
+
+These are the numbers in `scripts/deploy.ts`. Your board can use different ones.
+
+## Which network, and what it costs
+
+This project runs against **Robinhood Chain mainnet** by default. Prices are in **USDG**, a real
+dollar stablecoin, and every purchase is real money. Set `NEXT_PUBLIC_WEBSITEKIT_CHAIN_ID=46630` in
+`.env` to use the testnet instead, where boards settle in **tUSD**, a stand-in dollar anybody can
+mint for free. Floors in `websitekit.config.ts` are written in dollars and mean the same on both.
+
+Buying on a USDG board takes two wallet prompts: an approval letting the board spend up to the
+quoted price (plus a small margin), then the purchase. `<BuyDialog>` says so and hands your code
+both requests in order.
 
 ## Why the page is full of copy nobody wrote
 
@@ -44,20 +57,24 @@ keys freely before you deploy, and treat them as frozen afterwards.
 ## Deploying your own site
 
 ```
-cp .env.example .env    # a funded testnet key + the factory address
+cp .env.example .env    # a key with enough ETH for gas; on mainnet, real ETH
 pnpm deploy:site        # one transaction
 ```
 
-Read `scripts/deploy.ts` before running it. It is thirty lines and it decides things you cannot
-change afterwards:
+Read `scripts/deploy.ts` before running it. It is short and it decides things you cannot fully take
+back:
 
-**`takeBps`, `payoutBps`, `decayBps`, `maxDecayWeeks` and `cooldownSecs` are written once and have
-no setter.** That is the deal websitekit offers a buyer — they read the terms once and know the terms
-cannot move — and it means those numbers are a decision, not a default to revisit. Getting them
-wrong means cloning a fresh site and abandoning whoever bought into the old one.
+- **The settlement token is frozen.** USDG on mainnet, tUSD on testnet. There is no setter — changing
+  it would orphan every balance on the board.
+- **The take economics are nearly one-way.** `takeBps`, `payoutBps`, `reversionBps`,
+  `maxReversionWeeks` and `cooldownSecs` can be edited freely until the first slot is claimed. After
+  that they may only move in the direction that cannot strand a holder: takes cheaper, payouts
+  higher, reversion slower, cooldowns shorter.
+- **Rental terms stay editable both ways**, because rent binds nobody: an owner who dislikes a rate
+  simply does not list.
 
-What you *can* still change: the treasury, the pause switch, metadata, which slots are registered,
-and each slot's floor (±20% per change, 24h apart).
+What you can always change: the treasury, the pause switch, metadata, which slots are registered,
+and each slot's floor (±20% per change, a day apart).
 
 ## Things worth knowing before you launch
 

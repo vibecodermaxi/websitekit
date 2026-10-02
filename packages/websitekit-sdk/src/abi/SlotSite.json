@@ -524,6 +524,11 @@
             "internalType": "bool"
           },
           {
+            "name": "pinTreasury",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
             "name": "royaltyBps",
             "type": "uint96",
             "internalType": "uint96"
@@ -1717,6 +1722,19 @@
   },
   {
     "type": "function",
+    "name": "treasuryPinned",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "unaccruedRent",
     "inputs": [
       {
@@ -2618,6 +2636,11 @@
   {
     "type": "error",
     "name": "TransferToZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TreasuryPinned",
     "inputs": []
   },
   {

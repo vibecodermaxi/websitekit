@@ -38,12 +38,14 @@ export {
   encodeText,
   encodeLink,
   encodeImage,
+  encodeLinked,
   decodeContent,
+  decodeLinked,
   readContent,
   contentHashToCid,
   cidToContentHash,
 } from './content';
-export type { EncodedContent, DecodedContent, ContentResult, ContentFailure } from './content';
+export type { EncodedContent, DecodedContent, DecodedLinked, ContentResult, ContentFailure } from './content';
 
 // Slot identity — keys, not ordinals (§2).
 export { slotKey, slotKeys, slotTokenId, assertValidSlotKey, MAX_KEY_LENGTH, InvalidSlotKeyError } from './keys';
@@ -107,6 +109,7 @@ export {
   buildWithdrawTreasury,
   buildSweepTreasury,
   buildApproveSettlement,
+  approvalFor,
 } from './writes';
 export type {
   CallRequest,
@@ -117,6 +120,33 @@ export type {
   SiteRentalConfig,
   SiteFloorPolicyConfig,
 } from './writes';
+
+// Render escrow — one vault per board, outside `SlotSite`; the pin is all it needs from bytecode.
+export {
+  ESCROW_VAULT_ABI,
+  ESCROW_FACTORY_ABI,
+  ATTESTOR_ABI,
+  buildCreateEscrowedSite,
+  buildBook,
+  buildRelease,
+  buildClaim,
+  buildApproveVault,
+  buildVaultWithdrawFor,
+  buildMarkDark,
+  buildClearDark,
+  buildSweepForeign,
+  buildFundReserve,
+  buildWithdrawReserve,
+  readVault,
+  readDeposits,
+  readClaimable,
+  readVaultPending,
+  readVaultOf,
+  readEscrowBind,
+  readEscrowPolicy,
+  readAttestor,
+} from './escrow';
+export type { EscrowParams, BuildCreateEscrowedSiteOptions, VaultState, VaultDeposit, EscrowBind } from './escrow';
 
 // Site config — the file a builder edits (§0).
 export {
@@ -130,11 +160,36 @@ export {
 } from './config';
 export type { SiteConfig, SlotDefinition, SlotDefinitionInput, SlotKindName, DefineSiteInput } from './config';
 
+// The chains this SDK can name, which is a longer list than the ones it has addresses for.
+export { ROBINHOOD_TESTNET_CHAIN, ROBINHOOD_MAINNET_CHAIN, CHAINS, chainFor } from './chains';
+export type { Chain } from './chains';
+
+// What a board's money is: the token each chain's boards settle in, and how to read a board's own.
+export {
+  ROBINHOOD_MAINNET_USDG,
+  ROBINHOOD_TESTNET_TUSD,
+  SETTLEMENT_TOKENS,
+  settlementTokenFor,
+  NATIVE_CURRENCY,
+  readSettlementCurrency,
+} from './settlement';
+export type { SettlementToken, SettlementCurrency } from './settlement';
+
 // Deployed addresses (§7.9 — one chain at v1, deliberately).
 export {
+  ROBINHOOD_MAINNET,
   ROBINHOOD_TESTNET,
+  ROBINHOOD_TESTNET_R2,
+  ROBINHOOD_MAINNET_ESCROW,
+  ESCROW_DEPLOYMENTS,
+  escrowDeploymentFor,
+  ROBINHOOD_TESTNET_ESCROW,
+  ROBINHOOD_TESTNET_ESCROW_R1,
   DEPLOYMENTS,
   DEMO_SITE,
+  DEMO_SITE_MAINNET,
+  DEMO_SITES,
+  demoSiteFor,
   EXAMPLE_SITES,
   SMOKE_TEST_SITE,
   DEMO_SITE_V1,

@@ -1,6 +1,7 @@
 {
   "version": 2,
   "chainId": 46630,
+  "factory": "0x9e793f52874b8d078571cd6c8d9930c532d6a953",
   "sites": {
     "dispatch": "0xE0d1cF918a53eB92Ec672fa93530601ef4758Aa7",
     "devconf": "0xB1A7262F3eD2e54F4d950c5Ae76A24D726156932",

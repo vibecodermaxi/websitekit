@@ -11,9 +11,11 @@ import {
   cidToContentHash,
   contentHashToCid,
   decodeContent,
+  decodeLinked,
   encodeContent,
   encodeImage,
   encodeLink,
+  encodeLinked,
   encodeText,
   readContent,
 } from './content';
@@ -240,5 +242,166 @@ describe('payload is opaque', () => {
   it('decodeContent does not verify — that is readContent’s job', () => {
     const { bytes } = encodeLink('https://example.com');
     expect(decodeContent(bytes).kind).toBe(ContentKind.Link);
+  });
+});
+
+/**
+ * The shape a link is actually stored in, asserted against what the RENDERERS parse rather than
+ * against this helper's own idea of it.
+ *
+ * `encodeLink` encoded a bare URL string until 2026-08-23 while `@websitekit/react`'s `Slot.tsx`,
+ * `@websitekit/loader`'s `renderLink` and both seed scripts all used `{href, label}`. Nothing called
+ * the helper, so the disagreement was published and never once rendered — and the failure it would
+ * have produced is the silent blank this whole scheme exists to prevent: bytes that verify, a hash
+ * that matches, and a renderer that finds no JSON and quietly falls back.
+ */
+describe('encodeLink writes what the renderers read', () => {
+  const payloadOf = (c: { bytes: Uint8Array }) =>
+    new TextDecoder().decode(c.bytes.subarray(HEADER_BYTES));
+
+  it('is JSON with an href', () => {
+    const parsed = JSON.parse(payloadOf(encodeLink('https://example.com/x')));
+    expect(parsed).toEqual({ href: 'https://example.com/x' });
+  });
+
+  it('carries a label when given one', () => {
+    const parsed = JSON.parse(payloadOf(encodeLink('https://example.com', 'Read this')));
+    expect(parsed).toEqual({ href: 'https://example.com', label: 'Read this' });
+  });
+
+  /**
+   * Omitted, not null. Both renderers check `typeof label === 'string'` and fall back to the href;
+   * neither checks for null, so a `"label":null` would be carried on chain forever and ignored.
+   */
+  it('omits an absent label rather than writing null', () => {
+    expect(payloadOf(encodeLink('https://example.com'))).not.toContain('label');
+  });
+
+  it('still tags the object as a link', () => {
+    expect(decodeContent(encodeLink('https://example.com').bytes).kind).toBe(ContentKind.Link);
+  });
+
+  /** Refused rather than encoded into a link that can never render. */
+  it.each(['', '   '])('refuses an empty href (%p)', (href) => {
+    expect(() => encodeLink(href)).toThrow(MalformedContentError);
+  });
+
+  /**
+   * Relative hrefs are legal and the renderer resolves them against the page. Refusing them here
+   * would break the commonest case a publisher's own page actually uses.
+   */
+  it('accepts a relative href', () => {
+    expect(JSON.parse(payloadOf(encodeLink('/pricing'))).href).toBe('/pricing');
+  });
+
+  /**
+   * Scheme policy lives at RENDER, in the loader's `safeHref`, because the renderer is the only
+   * thing that sees content nobody in this repo wrote. Restating the list here would be a second
+   * definition of "safe" that can drift from the enforced one — and the drifting copy would be the
+   * reassuring one. This asserts the split on purpose, so nobody "fixes" it by adding a check here
+   * and assuming the render-side one is now redundant.
+   */
+  it('does NOT police the scheme — that is the renderer’s boundary', () => {
+    expect(JSON.parse(payloadOf(encodeLink('javascript:alert(1)'))).href).toBe('javascript:alert(1)');
+  });
+});
+
+/**
+ * The wrapper — `image-ads.md` §12.
+ *
+ * These assert the LAYOUT rather than a round trip alone, because the loader decodes this with its
+ * own hand-rolled copy and the two have no shared fixture. A round-trip test passes for any layout
+ * both ends of THIS file agree on, including one the loader does not implement.
+ */
+describe('a linked object', () => {
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+
+  it('is [innerKind][hrefLen:u16 BE][href][body]', () => {
+    const { bytes } = encodeLinked(ContentKind.Image, 'https://example.com/x', png);
+    const payload = bytes.subarray(HEADER_BYTES);
+    const href = utf8.encode('https://example.com/x');
+
+    expect(bytes[1]).toBe(ContentKind.Linked);
+    expect(payload[0]).toBe(ContentKind.Image);
+    expect((payload[1]! << 8) | payload[2]!).toBe(href.length);
+    expect(payload.subarray(3, 3 + href.length)).toEqual(href);
+    expect(payload.subarray(3 + href.length)).toEqual(png);
+  });
+
+  it('writes the length big-endian, which a one-byte href cannot tell you', () => {
+    // 300 bytes, so the high byte is 1 and a little-endian writer would put 44 first.
+    const href = `https://example.com/${'a'.repeat(300 - 20)}`;
+    const payload = encodeLinked(ContentKind.Image, href, png).bytes.subarray(HEADER_BYTES);
+    expect(payload[1]).toBe(1);
+    expect(payload[2]).toBe(300 - 256);
+    expect(decodeLinked(payload).href).toBe(href);
+  });
+
+  it('round-trips the body untouched', () => {
+    const payload = encodeLinked(ContentKind.Image, 'https://example.com', png).bytes.subarray(HEADER_BYTES);
+    const decoded = decodeLinked(payload);
+    expect(decoded.innerKind).toBe(ContentKind.Image);
+    expect(decoded.href).toBe('https://example.com');
+    expect(decoded.body).toEqual(png);
+  });
+
+  it('carries an empty body, because a zero-byte creative is malformed at a different layer', () => {
+    const decoded = decodeLinked(encodeLinked(ContentKind.Image, 'https://x.co', new Uint8Array()).bytes.subarray(HEADER_BYTES));
+    expect(decoded.body.length).toBe(0);
+  });
+
+  /**
+   * The twin trap refused at the door. A text slot with a destination is `ContentKind.Link`, and a
+   * second encoding of it would be two shapes over one meaning with nothing comparing them.
+   */
+  it.each([
+    ['Text', ContentKind.Text],
+    ['Link', ContentKind.Link],
+    ['Linked', ContentKind.Linked],
+  ])('refuses to wrap %s', (_name, kind) => {
+    expect(() => encodeLinked(kind, 'https://example.com', png)).toThrow(MalformedContentError);
+  });
+
+  it('refuses a wrapped kind on the way OUT too, so a hand-built object cannot smuggle one', () => {
+    const nested = Uint8Array.from([ContentKind.Linked, 0, 1, 0x61]);
+    expect(() => decodeLinked(nested)).toThrow(MalformedContentError);
+  });
+
+  it('needs a href', () => {
+    expect(() => encodeLinked(ContentKind.Image, '   ', png)).toThrow(MalformedContentError);
+    expect(() => decodeLinked(Uint8Array.from([ContentKind.Image, 0, 0]))).toThrow(MalformedContentError);
+  });
+
+  it('refuses a length that runs past the end rather than reading a short href', () => {
+    const lying = Uint8Array.from([ContentKind.Image, 0, 9, 0x61, 0x62]);
+    expect(() => decodeLinked(lying)).toThrow(MalformedContentError);
+  });
+
+  it('refuses a payload shorter than its own header', () => {
+    expect(() => decodeLinked(Uint8Array.from([ContentKind.Image, 0]))).toThrow(MalformedContentError);
+  });
+
+  it('refuses a href that is not UTF-8, rather than serving replacement characters in a URL', () => {
+    const bad = Uint8Array.from([ContentKind.Image, 0, 2, 0xff, 0xfe, 9]);
+    expect(() => decodeLinked(bad)).toThrow(MalformedContentError);
+  });
+
+  it('refuses kind 0, which is what a zeroed buffer decodes as', () => {
+    expect(() => decodeLinked(Uint8Array.from([0, 0, 1, 0x61]))).toThrow(MalformedContentError);
+  });
+
+  /**
+   * Scheme policy is the RENDERER's and this function must not grow a copy of it — a second
+   * definition of "safe" drifts, and the drifting copy is the reassuring one.
+   */
+  it('does not judge the scheme', () => {
+    expect(() => encodeLinked(ContentKind.Image, 'javascript:alert(1)', png)).not.toThrow();
+  });
+
+  it('reads back through readContent as an ordinary object', () => {
+    const { bytes, hash } = encodeLinked(ContentKind.Image, 'https://example.com', png);
+    const result = readContent(bytes, hash);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.kind).toBe(ContentKind.Linked);
   });
 });

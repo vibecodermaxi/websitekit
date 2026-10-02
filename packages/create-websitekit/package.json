@@ -1,6 +1,6 @@
 {
   "name": "create-websitekit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Scaffold a websitekit project \u2014 a page whose regions are individually owned and tradeable on chain.",
   "license": "MIT",
   "repository": {

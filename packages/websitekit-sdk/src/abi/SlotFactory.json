@@ -115,6 +115,11 @@
             "internalType": "bool"
           },
           {
+            "name": "pinTreasury",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
             "name": "royaltyBps",
             "type": "uint96",
             "internalType": "uint96"
@@ -242,6 +247,11 @@
           },
           {
             "name": "openRegistration",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "pinTreasury",
             "type": "bool",
             "internalType": "bool"
           },

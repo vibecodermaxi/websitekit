@@ -46,12 +46,12 @@ import {
   type SiteRentalConfig,
 } from '../src/index';
 import {
-  FACTORY,
   balanceOf,
   buy,
   deployer,
   deployerWallet,
   ensureFunded,
+  factory,
   floor,
   publicClient,
   refFor,
@@ -59,6 +59,9 @@ import {
   taker,
   takerWallet,
 } from './lib/chain';
+
+/** Resolved here rather than imported as a constant — see `factory()`'s note on being lazy. */
+const FACTORY = factory();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LEDGER = path.join(__dirname, 'examples.json');
@@ -255,6 +258,19 @@ const BOARDS: Board[] = [
 interface Ledger {
   version: 2;
   chainId: number;
+  /**
+   * The factory these boards were created through, and therefore the GENERATION they are clones of.
+   *
+   * `version` cannot carry this: it means "readable by this SDK", which stayed 2 across the
+   * treasury-pin generation of 2026-09-03 because `SlotView` did not change shape. So a ledger from
+   * the previous generation passes the version check, and a seed run against a new factory would
+   * find four sites already recorded and skip creating any of them — reporting success against a
+   * generation with no example boards on it. That is the exact failure `ROADMAP.md` records from
+   * v1's untagged ledger, one generation later.
+   *
+   * Optional only so a ledger written before this field is a clear error rather than a crash.
+   */
+  factory?: Address;
   sites: Record<string, Address>;
 }
 
@@ -262,7 +278,7 @@ const LEDGER_VERSION = 2;
 
 function loadLedger(): Ledger {
   if (!existsSync(LEDGER)) {
-    return { version: LEDGER_VERSION, chainId: ROBINHOOD_TESTNET.chainId, sites: {} };
+    return { version: LEDGER_VERSION, chainId: ROBINHOOD_TESTNET.chainId, factory: FACTORY, sites: {} };
   }
   const raw = JSON.parse(readFileSync(LEDGER, 'utf-8')) as Partial<Ledger>;
   if (raw.version !== LEDGER_VERSION) {
@@ -274,7 +290,15 @@ function loadLedger(): Ledger {
   if (raw.chainId !== ROBINHOOD_TESTNET.chainId) {
     throw new Error(`${path.basename(LEDGER)} is for chain ${raw.chainId}, not ${ROBINHOOD_TESTNET.chainId}`);
   }
-  return { version: LEDGER_VERSION, chainId: raw.chainId, sites: raw.sites ?? {} };
+  if (!raw.factory || raw.factory.toLowerCase() !== FACTORY.toLowerCase()) {
+    throw new Error(
+      `${path.basename(LEDGER)} records boards created through ${raw.factory ?? 'an unrecorded factory'}, but ` +
+        `WEBSITEKIT_FACTORY is ${FACTORY}. Those boards are clones of a different implementation and re-seeding ` +
+        'would skip creating any of them. Move the ledger aside (see examples.r1.json) before seeding a new ' +
+        'generation, or point WEBSITEKIT_FACTORY back at the one its boards are on.',
+    );
+  }
+  return { version: LEDGER_VERSION, chainId: raw.chainId, factory: raw.factory, sites: raw.sites ?? {} };
 }
 
 const ledger = loadLedger();

@@ -16,9 +16,9 @@ isolated from everyone else's.
 
 That headline now has an owner, a price, and a payout when somebody takes it.
 
-> **Experimental software. Unaudited. Testnet only.**
+> **Live on Robinhood Chain mainnet. Experimental and unaudited.**
 > The contracts are not upgradeable — a site is a clone frozen to the implementation it was created
-> from. Do not put money on this that you would mind losing.
+> from. Prices are real dollars (USDG). Do not put in money you would mind losing.
 
 ## Quick start
 
@@ -27,10 +27,10 @@ npm create websitekit my-site
 cd my-site && pnpm install && pnpm dev
 ```
 
-The first run needs **no credentials**. It renders a shared demo board on Robinhood Chain testnet:
-already claimed across two owners, two slots open, one taken twice, one under a live tenancy, and
-one withdrawn from sale. An empty board teaches nothing about the mechanic, so the one you start
-with is not empty.
+The first run needs **no credentials**. It renders a shared demo board on Robinhood Chain mainnet:
+already claimed across two owners, with slots open, some taken, one under a live tenancy, and one
+withdrawn from sale. An empty board teaches nothing about the mechanic, so the one you start with is
+not empty. Set `NEXT_PUBLIC_WEBSITEKIT_CHAIN_ID=46630` to work on the free testnet instead.
 
 ## How the market works
 
@@ -55,7 +55,7 @@ receives at least the floor.**
 | [`@websitekit/sdk`](packages/websitekit-sdk) | Reads, writes, pricing. Takes your viem client. |
 | [`@websitekit/react`](packages/websitekit-react) | `<Slot>`, `useSlot`, `useBuy`, `<BuyDialog>`. |
 | [`create-websitekit`](packages/create-websitekit) | Scaffold and its Next.js template. |
-| [`packages/websitekit-contracts`](packages/websitekit-contracts) | `SlotSite`, `SlotFactory`, `SlotReader`, `RentalsLib`. |
+| [`packages/websitekit-contracts`](packages/websitekit-contracts) | `SlotSite`, `SlotFactory`, `SlotReader`, `RentalsLib`, and render escrow. |
 
 ## Contracts
 
@@ -64,8 +64,14 @@ Four, because one does not fit under EIP-170. `SlotSite` is the sole custodian o
 money. `SlotReader` holds every convenience view and is deliberately **not** frozen, so the read
 surface can improve without redeploying a single site.
 
-Deployed on Robinhood Chain testnet (46630) and fully verified — see
-[`packages/websitekit-sdk/src/addresses.ts`](packages/websitekit-sdk/src/addresses.ts).
+Three more sit beside them and are not frozen: **render escrow**. `EscrowFactory` creates a board
+whose publisher revenue is held in an `EscrowVault` for a window and paid out to slot holders if the
+page goes dark; `Attestor` names the referee that reports it. They have an owner — see
+[`SECURITY.md`](SECURITY.md).
+
+Deployed on **Robinhood Chain mainnet (4663)**, settling in USDG, and on the testnet (46630). Every
+mainnet contract is verified on [Sourcify](https://sourcify.dev) as an exact match. Every
+address is in [`packages/websitekit-sdk/src/addresses.ts`](packages/websitekit-sdk/src/addresses.ts).
 
 ## Testing
 

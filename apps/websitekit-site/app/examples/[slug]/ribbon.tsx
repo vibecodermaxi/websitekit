@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ROBINHOOD_TESTNET_CHAIN } from '@websitekit/sdk';
 
 import type { ExampleMeta } from '../../../lib/sites';
 
@@ -19,7 +20,8 @@ export function Ribbon({
   claimed: number;
   total: number;
 }) {
-  const explorer = `https://explorer.testnet.chain.robinhood.com/address/${example.config.address}`;
+  // The example boards are seeded on the testnet, so their contracts are on its explorer.
+  const explorer = `${ROBINHOOD_TESTNET_CHAIN.explorer}/address/${example.config.address}`;
 
   return (
     <div className="ribbon">

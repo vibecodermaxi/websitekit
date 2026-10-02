@@ -30,13 +30,18 @@ cost of an encumbered position — a slot under a live tenancy is cheaper than i
 you inherit with it.
 
 ```tsx
-const { phase, quote, prepare, buildRequest } = useBuy('hero.headline');
+const { phase, quote, prepare, buildRequest, buildApproval } = useBuy('hero.headline');
 ```
+
+Amounts are in the board's own currency — `quote.currency` is read from its settlement token, so a
+USDG board shows dollars and a native board shows ETH. On a token board the purchase needs an ERC-20
+approval sent first: `buildApproval(request)` returns it (or `null` on a native board), and
+`<BuyDialog>` passes it to `onConfirm` as the third argument.
 
 Every export here is a client component or hook.
 
 ## Status
 
-Testnet only, unaudited, experimental.
+Live on Robinhood Chain mainnet and its testnet. Unaudited, experimental.
 
 MIT © websitekit

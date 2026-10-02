@@ -78,6 +78,22 @@ import {
   buildApproveSettlement,
   isNativeSettlement,
 } from './writes';
+import {
+  buildApproveVault,
+  buildBook,
+  buildClaim,
+  buildClearDark,
+  buildCreateEscrowedSite,
+  buildMarkDark,
+  buildRelease,
+  buildVaultWithdrawFor,
+  readClaimable,
+  readDeposits,
+  readEscrowBind,
+  readVault,
+  readVaultOf,
+  readVaultPending,
+} from './escrow';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const contractsOut = path.resolve(__dirname, '../../websitekit-contracts/out');
@@ -829,5 +845,125 @@ describe.skipIf(!runnable)('a token-settled site', () => {
     expect(boards[1]).toHaveLength(1);
     expect(boards[0]![0]!.key).toBe('hero.headline');
     expect(boards[1]![0]!.owner?.toLowerCase()).toBe(ALICE.address.toLowerCase());
+  });
+});
+
+/**
+ * Render escrow against real bytecode: the factory creates a board pinned to a vault it deploys in
+ * the same transaction, a sale's publisher cut lands in the vault, the attestor marks the board
+ * dark, and the holder surrenders the slot for what they paid.
+ *
+ * What only this can catch, beyond the forge suite: the SDK's argument tuples against the vault's
+ * real selectors, the struct-and-array constructor of `EscrowFactory` encoded by viem, and a
+ * `readEscrowBind` that reads the guarantee off two contracts rather than one.
+ */
+describe.skipIf(!runnable)('an escrowed board', () => {
+  let escrowFactory: Address;
+  let registry: Address;
+  let escrowedSite: Address;
+  let vault: Address;
+  const WINDOW = 14n * 86_400n;
+  const CLAIM_DELAY = 12n * 3_600n;
+
+  beforeAll(async () => {
+    registry = await deploy(artifact('Attestor.sol', 'Attestor'), [OWNER.address, OWNER.address]);
+    escrowFactory = await deploy(artifact('EscrowFactory.sol', 'EscrowFactory'), [
+      OWNER.address,
+      factory,
+      registry,
+      { windowSecs: WINDOW, claimDelaySecs: CLAIM_DELAY, minTransitionSecs: 6n * 3_600n, minBooking: 1_000n },
+      [NATIVE],
+    ]);
+  }, 60_000);
+
+  it('creates the board and its vault in one transaction, bound in both directions', async () => {
+    const request = buildCreateEscrowedSite({
+      escrowFactory,
+      owner: BOB.address,
+      name: 'Escrowed',
+      symbol: 'ESC',
+      baseTokenURI: '',
+      settlementToken: NATIVE,
+      economics: ECONOMICS,
+      rentals: RENTALS,
+      floorPolicy: FLOOR_POLICY,
+      slots: KEYS,
+    });
+    const { result } = await publicClient.simulateContract({ ...request, account: AGENCY } as never);
+    [escrowedSite, vault] = result as [Address, Address];
+    await send(AGENCY, request);
+
+    expect(await readVaultOf(publicClient, escrowFactory, escrowedSite)).toBe(vault);
+    const bind = await readEscrowBind(publicClient, escrowedSite, vault);
+    expect(bind).toEqual({ routesHere: true, pinned: true, bound: true, escrowed: true });
+    // And an unrelated site is not escrowed, whatever the vault says about its own.
+    const other = await readEscrowBind(publicClient, site, vault);
+    expect(other.escrowed).toBe(false);
+  });
+
+  it('books the publisher cut of a sale to the board owner', async () => {
+    const terms = await readSiteTerms(publicClient, { site: escrowedSite, reader });
+    const context = await readBuyContext(publicClient, { site: escrowedSite, reader }, 'hero.headline');
+    await send(ALICE, buildBuyFrom(escrowedSite, context, terms.settlementToken));
+
+    await send(AGENCY, buildBook(vault));
+    const deposits = await readDeposits(publicClient, vault);
+    expect(deposits).toHaveLength(1);
+    expect(deposits[0]!.beneficiary.toLowerCase()).toBe(BOB.address.toLowerCase());
+    expect(deposits[0]!.mature).toBe(false);
+    // 95% of the floor: the protocol's 5% never enters the vault.
+    expect(deposits[0]!.amount).toBe((KEYS['hero.headline'] * 95n) / 100n);
+    const state = await readVault(publicClient, vault);
+    expect(state.bookedTotal).toBe(deposits[0]!.amount);
+    expect(state.isDark).toBe(false);
+  });
+
+  it('refuses to release before the window and refuses a claim while live', async () => {
+    await expect(send(AGENCY, buildRelease(vault, 0n))).rejects.toThrow(/reverted/);
+    expect(await readClaimable(publicClient, vault, 'hero.headline')).toBe(0n);
+  });
+
+  it('marks dark, waits the delay, and pays the holder who surrenders the slot', async () => {
+    await warp(3_600);
+    await send(OWNER, buildMarkDark(vault));
+    expect((await readVault(publicClient, vault)).isDark).toBe(true);
+    expect(await readClaimable(publicClient, vault, 'hero.headline')).toBe(0n);
+
+    await warp(Number(CLAIM_DELAY));
+    const owed = await readClaimable(publicClient, vault, 'hero.headline');
+    expect(owed).toBe((KEYS['hero.headline'] * 95n) / 100n);
+
+    await send(ALICE, buildApproveVault(escrowedSite, vault));
+    // `0n` — no floor. This asserts the surrender pays, not what a caller would refuse; the floor
+    // has its own coverage in `EscrowVault.t.sol`.
+    await send(ALICE, buildClaim(vault, 'hero.headline', 0n));
+
+    const after = await readSlot(publicClient, { site: escrowedSite, reader }, 'hero.headline');
+    expect(after.owner?.toLowerCase()).toBe(vault.toLowerCase());
+    expect(await readVaultPending(publicClient, vault, ALICE.address)).toBe(owed);
+
+    const before = await publicClient.getBalance({ address: ALICE.address });
+    await send(AGENCY, buildVaultWithdrawFor(vault, ALICE.address));
+    expect((await publicClient.getBalance({ address: ALICE.address })) - before).toBe(owed);
+  });
+
+  it('clears dark after the spacing, and a fresh deposit matures a window later', async () => {
+    await warp(6 * 3_600);
+    await send(OWNER, buildClearDark(vault));
+    const state = await readVault(publicClient, vault);
+    expect(state.isDark).toBe(false);
+    expect(state.darkAccrued).toBeGreaterThan(0n);
+
+    const terms = await readSiteTerms(publicClient, { site: escrowedSite, reader });
+    const context = await readBuyContext(publicClient, { site: escrowedSite, reader }, 'hero.image');
+    await send(ALICE, buildBuyFrom(escrowedSite, context, terms.settlementToken));
+    await send(AGENCY, buildBook(vault));
+
+    await warp(Number(WINDOW));
+    const deposits = await readDeposits(publicClient, vault);
+    const fresh = deposits[deposits.length - 1]!;
+    expect(fresh.mature).toBe(true);
+    await send(AGENCY, buildRelease(vault, fresh.id));
+    expect(await readVaultPending(publicClient, vault, BOB.address)).toBe(fresh.amount);
   });
 });

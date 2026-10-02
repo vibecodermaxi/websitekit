@@ -1,0 +1,58 @@
+name: Bug report
+description: Something behaves differently from what is documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **If this is exploitable, stop and read [SECURITY.md](../blob/main/SECURITY.md).**
+        A deployed site keeps its implementation forever, so a public disclosure cannot be undone.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - contracts (SlotSite / RentalsLib / TermsLib / Pricing)
+        - SlotReader or SlotFactory
+        - "@websitekit/sdk"
+        - "@websitekit/react"
+        - the loader snippet
+        - create-websitekit / scaffold
+        - docs (websitekit.org)
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and where that expectation came from
+      description: A line from the spec, a doc page, or a type is far more useful than a guess.
+      placeholder: |
+        PROTOCOL-SPEC §2.4.1 says a displaced owner always receives at least the floor, but…
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: |
+        A failing test beats a description. For contracts, a Foundry test against
+        `packages/websitekit-contracts` is the fastest possible route to a fix.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit, package version, or deployed address
+      description: An address alone is ambiguous — nothing about `0x895Fb4Ba…` says which generation it came from.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you post
+      options:
+        - label: This is not exploitable, or I have already reported it privately.
+          required: true
+        - label: I am on Node 22.13+ and ran `pnpm install` (the parity tests also need `forge` on PATH).

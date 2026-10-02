@@ -576,6 +576,23 @@ export function buildApproveSettlement(
   return { address: settlementToken, abi: ERC20_ABI as Abi, functionName: 'approve', args: [site, amount] };
 }
 
+/**
+ * The approval a built purchase needs before it is sent, or `null` on a native site.
+ *
+ * Takes the BUY REQUEST rather than a price, because the allowance has to cover the `maxPrice`
+ * that request will authorise — and that is `charged` plus slippage, resolved inside `buildBuy`.
+ * Re-deriving it here from a quote would be a second implementation of the slippage rule, and the
+ * one that drifted would approve less than the buy may pull and revert after two signatures.
+ */
+export function approvalFor(
+  buy: ReturnType<typeof buildBuy>,
+  settlementToken: Address,
+): CallRequest<'approve', [Address, bigint]> | null {
+  if (isNativeSettlement(settlementToken)) return null;
+  const maxPrice = buy.functionName === 'buyFor' ? buy.args[2] : buy.args[1];
+  return buildApproveSettlement(settlementToken, buy.address, maxPrice);
+}
+
 // ---------------------------------------------------------------------------
 // Deploying a site
 // ---------------------------------------------------------------------------
@@ -638,6 +655,21 @@ export interface BuildCreateSiteOptions {
   royaltyBps?: bigint;
   /** §7.5. Leave off unless the site genuinely wants a free-for-all key namespace. */
   openRegistration?: boolean;
+  /**
+   * Freezes `treasury` for the life of the site: `setTreasury` reverts on a pinned board, for the
+   * owner as much as for anybody else, and the pin survives both handover paths.
+   *
+   * It exists so an external contract can hold the publisher's cut — `sweepTreasury()` is already
+   * permissionless and always pays `treasury`, so the only thing an escrow needs from bytecode is
+   * that the party it guards against cannot repoint the pipe. Off by default, which reproduces
+   * today's behaviour exactly.
+   *
+   * Two consequences to weigh before setting it. `treasury` is also the ERC-2981 royalty receiver,
+   * so pinning routes marketplace royalties to the same address, arriving as bare transfers that
+   * `treasuryBalance` never counted. And on a native site `_pay` uses `.call{value:}` — pin to an
+   * address that cannot accept value and the board can neither pay its publisher nor be repointed.
+   */
+  pinTreasury?: boolean;
   /** Floor an auto-registered key gets. Required when `openRegistration` is on. */
   defaultFloor?: bigint;
   /**
@@ -667,6 +699,7 @@ interface SiteConfigTuple {
   siteRentBps: bigint;
   maxRentalTerm: bigint;
   openRegistration: boolean;
+  pinTreasury: boolean;
   royaltyBps: bigint;
 }
 
@@ -686,6 +719,7 @@ export function buildCreateSite(
   | CallRequest<'createSiteFor', [Address, SiteConfigTuple, Hex[], bigint[]]> {
   const { economics, rentals, floorPolicy, slots = {}, royaltyBps = 0n } = options;
   const openRegistration = options.openRegistration ?? false;
+  const pinTreasury = options.pinTreasury ?? false;
   const defaultFloor = options.defaultFloor ?? 0n;
 
   assertSiteConfig(options, openRegistration, defaultFloor, royaltyBps);
@@ -713,6 +747,7 @@ export function buildCreateSite(
     siteRentBps: rentals.siteRentBps,
     maxRentalTerm: rentals.maxRentalTerm,
     openRegistration,
+    pinTreasury,
     royaltyBps,
   };
 

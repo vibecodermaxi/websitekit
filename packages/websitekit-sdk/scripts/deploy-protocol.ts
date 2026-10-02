@@ -24,31 +24,24 @@
  * exactly what produced an orphaned deployment once already. Set `WEBSITEKIT_FACTORY` in `.env` to
  * point tooling at an existing deployment instead of running this again.
  */
-import { createPublicClient, createWalletClient, defineChain, formatEther, http } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { formatEther } from 'viem';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { SLOT_READER_ABI } from '../src/index';
+import {
+  activeChain,
+  deployer as deployerAccount,
+  deployerWallet,
+  describeChain,
+  publicClient,
+  required,
+} from './lib/chain';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const contractsOut = path.resolve(__dirname, '../../websitekit-contracts/out');
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set — run \`set -a && . .env && set +a\` first`);
-  return value;
-}
-
-const robinhoodTestnet = defineChain({
-  id: 46630,
-  name: 'Robinhood Chain Testnet',
-  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: [required('TESTNET_RPC_URL')] } },
-  blockExplorers: { default: { name: 'Blockscout', url: 'https://explorer.testnet.chain.robinhood.com' } },
-  testnet: true,
-});
 
 /** Protocol economics, frozen into the implementation and unstrippable by any clone. */
 const PROTOCOL_BPS = 500n; // 5% of every buy
@@ -113,9 +106,8 @@ function link(art: Artifact, libraries: Record<string, `0x${string}`>): `0x${str
   return `0x${out}`;
 }
 
-const deployer = privateKeyToAccount(required('TESTNET_DEPLOYER_KEY') as `0x${string}`);
-const publicClient = createPublicClient({ chain: robinhoodTestnet, transport: http() });
-const wallet = createWalletClient({ account: deployer, chain: robinhoodTestnet, transport: http() });
+const deployer = deployerAccount();
+const wallet = deployerWallet();
 
 async function deploy(name: string, abi: unknown[], bytecode: `0x${string}`, args: readonly unknown[]) {
   const hash = await wallet.deployContract({ abi, bytecode, args } as never);
@@ -128,7 +120,8 @@ async function deploy(name: string, abi: unknown[], bytecode: `0x${string}`, arg
 }
 
 const balance = await publicClient.getBalance({ address: deployer.address });
-console.log(`\ndeployer          ${deployer.address} — ${formatEther(balance)} ETH`);
+console.log(`\n${describeChain()}`);
+console.log(`deployer          ${deployer.address} — ${formatEther(balance)} ETH`);
 console.log(`protocolTreasury  ${protocolTreasury} (permanent)\n`);
 if (balance === 0n) throw new Error('deployer has no balance — fund it from the testnet faucet first');
 
@@ -181,19 +174,37 @@ const version = (await publicClient.readContract({
 if (version !== 2n) throw new Error(`implementation reports version ${version}, expected 2`);
 void SLOT_READER_ABI; // the reader is exercised for real by the first `createSite`, not here
 
+/**
+ * The record to paste, DERIVED from the chain that was just deployed to.
+ *
+ * **It was three testnet literals until 2026-09-19** — `ROBINHOOD_TESTNET_V2`, `chainId: 46630` and
+ * the testnet explorer — written when there was one chain and harmless until the day this script
+ * could be pointed at another one. A deploy on 4663 would have printed a record calling itself
+ * testnet, and the whole purpose of this block is that somebody copies it verbatim into
+ * `addresses.ts`. That is the `robinhoodTestnet` naming lie again, sitting in the output rather
+ * than in the source, and it would have been pasted rather than read.
+ *
+ * The chain id and the explorer come off `activeChain`, so they cannot disagree with where the
+ * transactions actually went.
+ */
+const recordName = activeChain.testnet ? 'ROBINHOOD_TESTNET' : 'ROBINHOOD_MAINNET';
+
 console.log(`
 Deployed. Record this in packages/websitekit-sdk/src/addresses.ts:
 
-export const ROBINHOOD_TESTNET_V2: Deployment = {
-  chainId: 46630,
+export const ${recordName}: Deployment = {
+  chainId: ${activeChain.id},
   version: 2,
   implementation: '${implementation}',
   factory: '${factory}',
   reader: '${reader}',
   rentalsLib: '${rentalsLib}',
   protocolBps: ${PROTOCOL_BPS}n,
-  explorer: 'https://explorer.testnet.chain.robinhood.com',
+  explorer: '${activeChain.blockExplorers.default.url}',
 };
+
+and add it to DEPLOYMENTS, or deploymentFor(${activeChain.id}) keeps refusing — which is what the
+platform's lib/client.ts and lib/settlement.ts read at boot.
 
 Then verify the IMPLEMENTATION on Blockscout — once, not per site. Every site is an
 EIP-1167 clone of it, so one verification gives every site a readable contract page.

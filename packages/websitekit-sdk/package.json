@@ -1,6 +1,6 @@
 {
   "name": "@websitekit/sdk",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Issuance and settlement layer for tokenized page inventory \u2014 reads, writes and pricing for SlotSite.",
   "license": "MIT",
   "repository": {

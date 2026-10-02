@@ -13,5 +13,7 @@ export type { BuyDialogProps } from './BuyDialog';
 export { useBuy } from './useBuy';
 export type { UseBuyResult, BuyQuote, BuyPhase } from './useBuy';
 
+export { formatAmount } from './format';
+
 export { ContentStore, fetchAndVerify } from './content-store';
 export type { ContentStatus, FetchContentOptions } from './content-store';

@@ -89,6 +89,14 @@ export interface SlotState {
   lastPurchaseTs: bigint;
   /** Bumped on every edit; what a client caches content against. */
   version: number;
+  /**
+   * **Total PURCHASES, not takeovers** — `SlotSite.sol:588` increments it on every `_buy`, and a
+   * first claim is a buy. So `takes === 1` means claimed and never taken from anyone, and the
+   * number of times a slot has actually changed hands is `max(takes - 1, 0)`.
+   *
+   * The name reads like the opposite and has already produced a UI that told a publisher thirteen
+   * of their slots had been fought over when two had.
+   */
   takes: number;
   /** False for a key the site owner has not registered. Such a slot cannot be bought (§7.5). */
   registered: boolean;

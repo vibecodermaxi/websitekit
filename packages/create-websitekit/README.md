@@ -11,9 +11,13 @@ pnpm dev
 ```
 
 **No credentials needed for the first run.** With an empty `.env` the page renders a shared demo
-board on Robinhood Chain testnet — already claimed across two owners, with slots left open, one
-taken twice and one under a live tenancy. An empty board teaches nothing about the mechanic, so the
-one you start with is not empty.
+board on Robinhood Chain mainnet — already claimed across two owners, with slots left open, some
+taken and one under a live tenancy. An empty board teaches nothing about the mechanic, so the one
+you start with is not empty.
+
+**Mainnet by default, and the money is real.** Boards settle in USDG. Set
+`NEXT_PUBLIC_WEBSITEKIT_CHAIN_ID=46630` for the testnet, where boards settle in a free stand-in
+dollar.
 
 ## What you get
 
@@ -29,7 +33,7 @@ because deploying a site is a single `createSite` call and the one transaction t
 not be the one thing you cannot inspect.
 
 ```bash
-pnpm deploy:site   # needs a funded testnet key in .env
+pnpm deploy:site   # needs a key with ETH for gas in .env
 ```
 
 ## Two things to know before you deploy
@@ -41,6 +45,7 @@ pnpm deploy:site   # needs a funded testnet key in .env
   claimed, then ratchet only in the direction that cannot strand a holder. Rent terms stay mutable.
   `deploy.ts` documents which is which at the point you choose them.
 
-Testnet only, unaudited, experimental.
+Live on Robinhood Chain mainnet. Unaudited and experimental — the contracts cannot be upgraded, so
+read them before you put money in.
 
 MIT © websitekit

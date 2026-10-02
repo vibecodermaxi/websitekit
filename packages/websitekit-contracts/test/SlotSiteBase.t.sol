@@ -163,6 +163,7 @@ abstract contract SlotSiteBase is Test {
             siteRentBps: SITE_RENT_BPS,
             maxRentalTerm: MAX_RENTAL_TERM,
             openRegistration: false,
+            pinTreasury: false,
             royaltyBps: 500
         });
     }

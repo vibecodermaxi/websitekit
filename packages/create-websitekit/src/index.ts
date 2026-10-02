@@ -62,12 +62,15 @@ console.log(`
     pnpm dev
 
   The page renders straight away, with no credentials, against a shared demo board
-  on testnet: already claimed across two owners, two slots left open, one taken
-  twice, one under a live tenancy, and one withdrawn from sale. Unowned slots show
-  your \`fallback\` copy. Alt-click any slot to see what it costs.
+  on Robinhood Chain mainnet: already claimed across two owners, with slots left
+  open, some taken, one under a live tenancy, and one withdrawn from sale. Unowned
+  slots show your \`fallback\` copy. Alt-click any slot to see what it costs.
+
+  Prices are in USDG, and buying is real money. For the free testnet, set
+  NEXT_PUBLIC_WEBSITEKIT_CHAIN_ID=46630 in .env.
 
   When you want your own site:
 
-    cp .env.example .env      # add a funded testnet key
-    pnpm deploy:site          # one transaction, prints the address into your config
+    cp .env.example .env      # add a key with ETH for gas
+    pnpm deploy:site          # one transaction, writes the address into .env
 `);

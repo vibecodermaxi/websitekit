@@ -113,6 +113,9 @@ contract SlotSite is ERC721, Ownable, ReentrancyGuardTransient {
     address public treasury;
     bool public paused;
     bool public openRegistration;
+    /// @dev Frozen at `initialize`. When set, `setTreasury` reverts for the life of the site, so the
+    /// address the publisher's cut is paid to can never be repointed by the party it pays.
+    bool public treasuryPinned;
     uint256 public defaultFloor;
 
     string internal _name;
@@ -188,6 +191,7 @@ contract SlotSite is ERC721, Ownable, ReentrancyGuardTransient {
     error SiteAlreadyInitialized();
     error ZeroAddress();
     error InvalidConfig();
+    error TreasuryPinned();
     error InvalidReversion();
     error TakeTooHigh();
     error PayoutBelowPrincipal();
@@ -291,6 +295,7 @@ contract SlotSite is ERC721, Ownable, ReentrancyGuardTransient {
         uint256 siteRentBps;
         uint64 maxRentalTerm;
         bool openRegistration;
+        bool pinTreasury;
         uint96 royaltyBps;
     }
 
@@ -317,6 +322,7 @@ contract SlotSite is ERC721, Ownable, ReentrancyGuardTransient {
         maxRentalTerm = cfg.maxRentalTerm;
 
         treasury = cfg.treasury;
+        treasuryPinned = cfg.pinTreasury;
         openRegistration = cfg.openRegistration;
         defaultFloor = cfg.defaultFloor;
         _name = cfg.name;
@@ -922,6 +928,7 @@ contract SlotSite is ERC721, Ownable, ReentrancyGuardTransient {
     // ---------------------------------------------------------------------
 
     function setTreasury(address treasury_) external onlyOwner {
+        if (treasuryPinned) revert TreasuryPinned();
         if (treasury_ == address(0)) revert ZeroAddress();
         treasury = treasury_;
         emit TreasurySet(treasury_);

@@ -1,6 +1,10 @@
 /**
  * Verifies a deployment on a Blockscout explorer, and reports what actually stuck.
  *
+ * **Testnet only.** Mainnet's explorer answers every scripted request with a Cloudflare challenge,
+ * so this cannot reach it; the mainnet set was verified on Sourcify instead, which Blockscout
+ * imports — `forge verify-contract --chain 4663 --verifier sourcify --watch <address> <path:Name>`.
+ *
  *   set -a && . .env && set +a
  *   pnpm --filter @websitekit/sdk exec tsx scripts/verify-deployment.ts
  *

@@ -22,14 +22,27 @@
  */
 import { createPublicClient, createWalletClient, defineChain, http, type Chain } from 'viem';
 
-import { ROBINHOOD_TESTNET } from '../src/index';
-import { publicClient as testnetClient, required, robinhoodTestnet as testnet, taker } from './lib/chain';
+import { ROBINHOOD_MAINNET_CHAIN, ROBINHOOD_TESTNET } from '../src/index';
+import { activeChain as testnet, publicClient as testnetClient, taker } from './lib/chain';
 
+/**
+ * Mainnet, from the SDK's own chain record rather than from four literals and an env var.
+ *
+ * **This file carried the first mainnet reference in the repo and nobody noticed** — an id, a name,
+ * a currency and `MAINNET_RPC_URL`, written for a measurement script while three documents said the
+ * chain did not exist. `chains.ts` is where that record belongs now. The endpoint still allows an
+ * override, because this script's whole job is asking a chain questions and a rate-limited public
+ * endpoint is the thing most likely to stop it.
+ */
 const mainnet = defineChain({
-  id: 4663,
-  name: 'RH Mainnet',
+  id: ROBINHOOD_MAINNET_CHAIN.id,
+  name: ROBINHOOD_MAINNET_CHAIN.name,
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: [required('MAINNET_RPC_URL')] } },
+  rpcUrls: {
+    default: { http: [process.env.MAINNET_RPC_URL || ROBINHOOD_MAINNET_CHAIN.rpcUrl] },
+  },
+  blockExplorers: { default: { name: 'Blockscout', url: ROBINHOOD_MAINNET_CHAIN.explorer } },
+  testnet: ROBINHOOD_MAINNET_CHAIN.testnet,
 });
 
 // ---------------------------------------------------------------------------

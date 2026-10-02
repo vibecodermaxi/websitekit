@@ -1,21 +1,17 @@
 import { defineChain } from 'viem';
+import { ROBINHOOD_TESTNET_CHAIN as record } from '@websitekit/sdk';
 
 /**
- * Robinhood Chain testnet — websitekit's launch chain (§10.5).
+ * Robinhood Chain testnet, where the four example boards are seeded.
  *
- * Defined here rather than imported from `viem/chains` because viem does not ship it.
+ * Built from the SDK's chain record rather than written out here, so the rpc and the explorer have
+ * one source. The rpc is the PUBLIC one — this is read from a browser and from a public build.
  */
 export const robinhoodTestnet = defineChain({
-  id: 46630,
-  name: 'Robinhood Chain Testnet',
+  id: record.id,
+  name: record.name,
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: {
-    // The public RPC, not the Alchemy key in the repo root .env — this one is read from a browser
-    // and from a build that will eventually run somewhere public.
-    default: { http: ['https://rpc.testnet.chain.robinhood.com'] },
-  },
-  blockExplorers: {
-    default: { name: 'Blockscout', url: 'https://explorer.testnet.chain.robinhood.com' },
-  },
-  testnet: true,
+  rpcUrls: { default: { http: [record.rpcUrl] } },
+  blockExplorers: { default: { name: 'Blockscout', url: record.explorer } },
+  testnet: record.testnet,
 });

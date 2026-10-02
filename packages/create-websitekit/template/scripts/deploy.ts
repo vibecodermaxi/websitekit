@@ -16,13 +16,13 @@
  * So the numbers below are a decision rather than a default to revisit — but a wrong one costs a
  * conversation before launch, not an abandoned site.
  */
-import { createPublicClient, createWalletClient, http, parseEther } from 'viem';
+import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { ROBINHOOD_TESTNET, buildCreateSite, slotFloors } from '@websitekit/sdk';
+import { buildCreateSite, slotFloors } from '@websitekit/sdk';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 import config from '../websitekit.config';
-import { robinhoodTestnet } from '../lib/chain';
+import { chain, deployment, settlement } from '../lib/chain';
 
 /**
  * The factory and the reader for this chain, from the SDK's published table unless .env overrides.
@@ -32,16 +32,23 @@ import { robinhoodTestnet } from '../lib/chain';
  * funded key. The reader is carried separately from the factory because it is deliberately
  * REPLACEABLE (§11.4): adopting a new one is a config change here, not a version bump of the SDK.
  */
-const FACTORY = (process.env.WEBSITEKIT_FACTORY as `0x${string}` | undefined) ?? ROBINHOOD_TESTNET.factory;
-const READER = (process.env.WEBSITEKIT_READER as `0x${string}` | undefined) ?? ROBINHOOD_TESTNET.reader;
+const FACTORY = (process.env.WEBSITEKIT_FACTORY as `0x${string}` | undefined) ?? deployment.factory;
+const READER = (process.env.WEBSITEKIT_READER as `0x${string}` | undefined) ?? deployment.reader;
 if (!READER) throw new Error('no reader for this chain — set WEBSITEKIT_READER in .env');
 
 const key = process.env.DEPLOYER_PRIVATE_KEY as `0x${string}` | undefined;
 if (!key) throw new Error('DEPLOYER_PRIVATE_KEY is not set — copy .env.example to .env');
 
 const account = privateKeyToAccount(key);
-const publicClient = createPublicClient({ chain: robinhoodTestnet, transport: http() });
-const wallet = createWalletClient({ account, chain: robinhoodTestnet, transport: http() });
+const publicClient = createPublicClient({ chain, transport: http() });
+const wallet = createWalletClient({ account, chain, transport: http() });
+
+// Said before anything is signed. On mainnet this spends real gas, and the board it creates settles
+// in real dollars forever — `settlementToken` has no setter.
+console.log(
+  `\n  Deploying to ${chain.name}${chain.testnet ? ' (testnet)' : ' — real money'}, ` +
+    `settling in ${settlement.symbol}, from ${account.address}.\n`,
+);
 
 /**
  * `minFloor`, as the contract will derive it: `10 ** (decimals - 4)` (§11.2).
@@ -51,6 +58,15 @@ const wallet = createWalletClient({ account, chain: robinhoodTestnet, transport:
  * same rule bites hardest on a token-settled site, where the number is 100 units rather than 1e14
  * and a config copied from a native site is wrong by a factor of a trillion.
  */
+// The floors were parsed against `config.decimals`; the site will be priced in the token below. A
+// mismatch is out by 1e12, and nothing on chain can tell you which of the two you meant.
+if (config.decimals !== settlement.decimals) {
+  throw new Error(
+    `websitekit.config.ts parses floors at ${config.decimals} decimals, but ${settlement.symbol} has ` +
+      `${settlement.decimals}. Make them agree before deploying.`,
+  );
+}
+
 const minFloor = 10n ** BigInt(config.decimals - 4);
 for (const slot of config.slots) {
   if (slot.floor < minFloor) {
@@ -68,9 +84,11 @@ const request = buildCreateSite({
   baseTokenURI: 'https://example.com/slot/',
   treasury: account.address,
 
-  // `0x0` settles in the chain's native currency. Pass an ERC-20 address to settle in a stablecoin
-  // instead — and then set `decimals` in websitekit.config.ts to match it.
-  settlementToken: '0x0000000000000000000000000000000000000000',
+  // USDG on mainnet, the tUSD stand-in on testnet — from `lib/chain.ts`. FROZEN for the site's life:
+  // there is no setter, because changing it would orphan every balance on the site's ledger. To
+  // settle in something else, change it here AND `decimals` in websitekit.config.ts to match, or
+  // every floor is parsed against the wrong unit.
+  settlementToken: settlement.address,
 
   economics: {
     takeBps: 14_000n, //          1.4x — what a taker pays over the effective floor
@@ -112,7 +130,7 @@ if (receipt.status !== 'success') throw new Error(`createSite reverted (tx ${has
 
 console.log(`
   Site deployed: ${site}
-  ${robinhoodTestnet.blockExplorers.default.url}/address/${site}
+  ${chain.blockExplorers.default.url}/address/${site}
 
   Written into .env as NEXT_PUBLIC_WEBSITEKIT_SITE. Restart \`pnpm dev\`.
 `);
@@ -134,5 +152,3 @@ writeFileSync(
     .replace(/^NEXT_PUBLIC_WEBSITEKIT_READER=.*$/m, '')
     .trimEnd()}\nNEXT_PUBLIC_WEBSITEKIT_SITE=${site}\nNEXT_PUBLIC_WEBSITEKIT_READER=${READER}\n`,
 );
-
-void parseEther; // re-exported for convenience when editing floors above
