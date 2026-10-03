@@ -74,7 +74,8 @@ export const DOC_PAGES: DocPage[] = [
 export const DOC_NAV: { slug: string; title: string }[] = [
   ...DOC_PAGES.map((page) => ({ slug: page.slug, title: page.title })),
   { slug: 'api', title: 'API reference' },
-  { slug: 'v1-to-v2', title: 'v1 → v2' },
+  // `/docs/v1-to-v2` still exists and the homepage's docs cards still link it; it is out of the
+  // header because a migration page is for the few upgrading, not for everybody arriving.
 ];
 
 export function docFor(slug: string): DocPage | undefined {

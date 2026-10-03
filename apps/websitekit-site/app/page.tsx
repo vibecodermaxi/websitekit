@@ -4,6 +4,9 @@ import { EXAMPLES } from '../lib/sites';
 import { DOC_NAV, DOC_PAGES } from '../lib/docs';
 import { CREATE_COMMAND, GITHUB_URL, PACKAGES } from '../lib/links';
 
+/** Where the badge leads: every deployed address, so "live on mainnet" is a claim you can check. */
+const MAINNET_ADDRESSES_URL = `${GITHUB_URL}/blob/main/packages/websitekit-sdk/src/addresses.ts`;
+
 export const metadata = {
   title: 'websitekit — the issuance and settlement layer for tokenized page inventory',
 };
@@ -26,6 +29,13 @@ export default function Home() {
               <a href={PACKAGES[0].url}>npm &#8599;</a>
             </nav>
           </div>
+          <a className="live-badge" href={MAINNET_ADDRESSES_URL}>
+            <span className="live-dot" aria-hidden="true" />
+            {/* One span, so the words wrap as a sentence; bare text nodes would each be a flex item. */}
+            <span>
+              Live on Robinhood Chain mainnet <span className="live-sep">·</span> priced in USDG
+            </span>
+          </a>
           <p className="lede">The issuance and settlement layer for tokenized page inventory.</p>
           <p className="sub">
             A publisher registers regions of a rendered page as discrete, transferable positions.
