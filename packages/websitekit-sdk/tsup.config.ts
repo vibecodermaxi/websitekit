@@ -14,7 +14,9 @@ import { defineConfig } from 'tsup';
  * exist yet. Revisit when one asks.
  */
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // Image boards are their own entry (`@websitekit/sdk/image-boards`, 2026-10-12): their names —
+  // `quote`, `readBlock`, `Rect` — are generic, and the root already has a `readCanEdit` for slots.
+  entry: ['src/index.ts', 'src/image-boards.ts'],
   format: ['esm'],
   dts: true,
   sourcemap: true,

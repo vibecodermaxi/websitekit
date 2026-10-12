@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { ERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 
 /**
  * @title TestUSD — a mintable settlement token for testnets and local chains.
@@ -33,8 +34,12 @@ import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
  * `10 ** (decimals - 4)`, so a token deployed at 18 decimals against floors written for 6 is wrong
  * by 1e12 — and silently correct on a native board, which is what makes the mistake survivable long
  * enough to reach a deploy. Deploy the stand-in with the decimals of the token it stands in for.
+ *
+ * **It has EIP-2612 `permit` because mainnet USDG does** (added 2026-10-07), so a buy can be one
+ * signature plus one transaction. A stand-in without it would make testnet prove an approve-then-buy
+ * path mainnet never takes. The deployment before this one has no `permit`.
  */
-contract TestUSD is ERC20 {
+contract TestUSD is ERC20, ERC20Permit {
     /**
      * @dev Whole units mintable in one call.
      *
@@ -51,7 +56,7 @@ contract TestUSD is ERC20 {
     /// @notice The raw-unit ceiling on one `mint`, derived from this token's own decimals.
     uint256 public immutable maxMintPerCall;
 
-    constructor(string memory name_, string memory symbol_, uint8 decimals_) ERC20(name_, symbol_) {
+    constructor(string memory name_, string memory symbol_, uint8 decimals_) ERC20(name_, symbol_) ERC20Permit(name_) {
         _decimals = decimals_;
         maxMintPerCall = MAX_MINT_WHOLE_UNITS * (10 ** uint256(decimals_));
     }

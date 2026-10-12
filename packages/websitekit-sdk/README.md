@@ -49,7 +49,7 @@ This SDK never holds a key. Every `build*` returns a request object your wallet 
 
 ## Escrow
 
-Optional, and deployed nowhere yet. A site created through `EscrowFactory` has its `treasury`
+Optional, and deployed on mainnet and testnet (`escrowDeploymentFor`). A site created through `EscrowFactory` has its `treasury`
 pinned to an `EscrowVault`; the publisher's cut waits a window there, and a slot holder on a page
 that goes dark can hand the slot back for what they paid.
 
@@ -70,6 +70,47 @@ has to land first, on the site. `readClaimable` is the vault's own verdict and f
 into a zero; `readVault` carries the clock and the ledger. `buildMarkDark`/`buildClearDark` are the
 attestor's and accepted from nobody else.
 
+## Image boards — testnet only
+
+The second kind of board: one uploaded picture, sold as rectangular blocks of square cells. The
+board itself is one ERC-721 token in a shared collection; a block is a record on its board, bought
+whole, given or resold only by its owner. Spec: [`docs/IMAGE-BOARD-SPEC.md`](../../docs/IMAGE-BOARD-SPEC.md).
+
+**Robinhood Chain testnet (46630) only, for now.** `imageBoardDeploymentFor(4663)` throws rather
+than answering with testnet's addresses; mainnet arrives as a release with its addresses in it.
+Everything lives under its own entry point, because its names (`quote`, `readBlock`, `Rect`) are
+generic:
+
+```ts
+import {
+  imageBoardDeploymentFor, readImageBoard, readBlocks, readBuyError, readBuyQuote,
+  permitTypedData, splitSignature, buildBuyBlocksWithPermit, quote, buyError,
+} from '@websitekit/sdk/image-boards';
+
+const { token } = imageBoardDeploymentFor(46630);
+const board = await readImageBoard(client, '0xBoard');
+const rects = [{ col: 4, row: 2, cols: 10, rows: 8 }]; // each rectangle becomes its own block
+
+// The chain is the gate: ask it, fresh, right before building the buy.
+if ((await readBuyError(client, board.address, rects)) !== 'none') throw new Error('taken');
+const total = await readBuyQuote(client, board.address, rects);
+// …sign `permitTypedData({ token, spender: board.address, value: total, … })`, then:
+const request = buildBuyBlocksWithPermit({
+  board: board.address, recipient: buyer, rects, permitValue: total, permit: splitSignature(sig, deadline),
+});
+```
+
+`quote` and `buyError` are a TypeScript twin of the contract, pinned to it by vectors the contract
+generates — use them to preview a selection as the pointer moves, never to decide a buy. Builders
+cover the rest: creating a board (`buildCreateImageBoard`, permissionless; the seller is named and
+signs nothing), writing a block's picture hash (`buildEditBlock`), editors, gifts, resale
+(`buildListBlock`, `buildBuyListedBlockWithPermit`) and lowering prices (`buildLowerPrices`).
+
+**What the chain does not do:** draw the picture. A block stores a content hash; composing the
+board's picture from its blocks, and serving the collection's token metadata, is the job of whoever
+hosts the board. A board created straight through the collection gets its NFT, but its metadata is
+only as good as that host's support for it.
+
 ## Three rules worth knowing up front
 
 - **`settlementToken` is required on every builder that moves money.** There is no default: a
@@ -83,7 +124,8 @@ attestor's and accepted from nobody else.
 ## Status
 
 Live on Robinhood Chain mainnet, where boards settle in USDG and the money is real, and on its
-testnet. Unaudited, and the contracts are **not upgradeable** — a site is a clone frozen to the
-implementation it was created from. Experimental software.
+testnet. Image boards are on the testnet only. Unaudited, and the contracts are **not
+upgradeable** — a site is a clone frozen to the implementation it was created from. Experimental
+software.
 
 MIT © websitekit

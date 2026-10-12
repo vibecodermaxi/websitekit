@@ -400,6 +400,25 @@ converts; one that renders blank reads as breakage.
 
 ---
 
+## Image boards
+
+A second kind of board, beside the page regions above: a seller uploads one picture, and buyers buy
+rectangular blocks of its square cells and put their own pictures in them. The board is one ERC-721
+token in a shared collection, minted to the seller; a block is a record on the board, owned outright
+— there are no takeovers — and moved only by its owner, as a gift or a resale at a price they set.
+Whoever holds the board's token is paid for each square sold and a share of each resale, and may
+lower the price of unsold squares but never raise it. Squares can be priced by zone at creation, and
+a seller can keep areas for themselves.
+
+**Testnet only for now** (Robinhood Chain testnet, 46630). The contracts are
+`ImageBoard.sol` and `ImageBoardCollection.sol`, specified in
+[`IMAGE-BOARD-SPEC.md`](./IMAGE-BOARD-SPEC.md); the client is `@websitekit/sdk/image-boards`, whose
+`imageBoardDeploymentFor` refuses any chain without a deployment rather than answering with
+another's. The chain records who owns which block and the content hash each one shows; drawing the
+board's picture from those is the host's job.
+
+---
+
 ## Reference deployments
 
 **Robinhood Chain mainnet (4663)**, where boards settle in USDG, and **Robinhood Chain testnet
@@ -529,6 +548,7 @@ with per-position revenue computed through `computeSplit` from each board's on-c
 
 - [Protocol spec](./PROTOCOL-SPEC.md) — every parameter decision and its reasoning. This is what
   the `§` references scattered through the source point at.
+- [Image-board spec](./IMAGE-BOARD-SPEC.md) — the image-board contracts, rule by rule.
 - **API reference: the TypeScript types**, plus the README in each package. There is deliberately no
   hand-maintained function list — the one this repo used to have spent a full release describing an
   API that had already changed, because it was the only document with no compiler behind it.

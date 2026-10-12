@@ -1,7 +1,7 @@
 {
   "name": "@websitekit/sdk",
-  "version": "0.2.1",
-  "description": "Issuance and settlement layer for tokenized page inventory \u2014 reads, writes and pricing for SlotSite.",
+  "version": "0.3.0",
+  "description": "Issuance and settlement layer for tokenized page inventory — reads, writes and pricing for SlotSite.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -26,7 +26,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./image-boards": "./src/image-boards.ts"
   },
   "files": [
     "dist",
@@ -41,6 +42,10 @@
       ".": {
         "types": "./dist/index.d.ts",
         "import": "./dist/index.js"
+      },
+      "./image-boards": {
+        "types": "./dist/image-boards.d.ts",
+        "import": "./dist/image-boards.js"
       }
     }
   },

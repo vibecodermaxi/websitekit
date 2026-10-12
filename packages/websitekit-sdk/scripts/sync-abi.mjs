@@ -38,6 +38,8 @@ export const TARGETS = [
   ['EscrowVault.sol', 'EscrowVault', 'EscrowVault.json'],
   ['EscrowFactory.sol', 'EscrowFactory', 'EscrowFactory.json'],
   ['Attestor.sol', 'Attestor', 'Attestor.json'],
+  ['ImageBoard.sol', 'ImageBoard', 'ImageBoard.json'],
+  ['ImageBoardCollection.sol', 'ImageBoardCollection', 'ImageBoardCollection.json'],
 ];
 
 let wrote = 0;
