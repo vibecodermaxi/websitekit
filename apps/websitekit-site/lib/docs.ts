@@ -112,6 +112,8 @@ function rewriteLinks(html: string): string {
   return html
     .replace(/href="\.\/README\.md"/g, 'href="/docs/guide"')
     .replace(/href="\.\/PROTOCOL-SPEC\.md"/g, 'href="/docs/protocol-spec"')
+    // Public, but not a page here (yet): the image-board contracts are testnet only.
+    .replace(/href="\.\/IMAGE-BOARD-SPEC\.md"/g, `href="${REPO_BLOB}docs/IMAGE-BOARD-SPEC.md"`)
     // Private by decision — see the note on DOC_PAGES above. The link text is matched lazily rather
     // than as `[^<]*`, because markdown like [`PIVOT-MAP.md`](./PIVOT-MAP.md) renders its label as a
     // nested <code>, and a character class that stops at `<` never reaches the closing tag.
