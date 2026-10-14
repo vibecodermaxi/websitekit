@@ -73,8 +73,10 @@ attestor's and accepted from nobody else.
 ## Image boards — testnet only
 
 The second kind of board: one uploaded picture, sold as rectangular blocks of square cells. The
-board itself is one ERC-721 token in a shared collection; a block is a record on its board, bought
-whole, given or resold only by its owner. Spec: [`docs/IMAGE-BOARD-SPEC.md`](../../docs/IMAGE-BOARD-SPEC.md).
+board itself is one ERC-721 token in a shared collection; a block is a record on its board, given
+or resold whole only by its owner. Any cell can be bought, sold or not: a buy over another block's
+cells takes them at that block's price times the board's take multiple, and credits its owner — as
+a page slot is taken — except a square its creator kept, and one bought in the last cooldown. Spec: [`docs/IMAGE-BOARD-SPEC.md`](../../docs/IMAGE-BOARD-SPEC.md).
 
 **Robinhood Chain testnet (46630) only, for now.** `imageBoardDeploymentFor(4663)` throws rather
 than answering with testnet's addresses; mainnet arrives as a release with its addresses in it.
@@ -83,25 +85,33 @@ generic:
 
 ```ts
 import {
-  imageBoardDeploymentFor, readImageBoard, readBlocks, readBuyError, readBuyQuote,
-  permitTypedData, splitSignature, buildBuyBlocksWithPermit, quote, buyError,
+  imageBoardDeploymentFor, readImageBoard, readBlocks, readCellMap, gridStateOf, readBuyError,
+  readQuoteBlocks, permitTypedData, splitSignature, buildBuyBlocksWithPermit, quoteBlocks, buyError,
 } from '@websitekit/sdk/image-boards';
 
 const { token } = imageBoardDeploymentFor(46630);
 const board = await readImageBoard(client, '0xBoard');
 const rects = [{ col: 4, row: 2, cols: 10, rows: 8 }]; // each rectangle becomes its own block
 
+// A preview, as the pointer moves: the twin, against the board's cells and blocks.
+const blocks = await readBlocks(client, board.address, board.blockCount);
+const cells = await readCellMap(client, board.address, { cols: board.gridCols, rows: board.gridRows });
+const state = gridStateOf(board, blocks, cells);
+const shown = buyError(state, rects, now) === 'none' ? quoteBlocks(state, rects, now) : null;
+
 // The chain is the gate: ask it, fresh, right before building the buy.
-if ((await readBuyError(client, board.address, rects)) !== 'none') throw new Error('taken');
-const total = await readBuyQuote(client, board.address, rects);
+if ((await readBuyError(client, board.address, rects)) !== 'none') throw new Error('refused');
+const total = await readQuoteBlocks(client, board.address, rects);
 // …sign `permitTypedData({ token, spender: board.address, value: total, … })`, then:
 const request = buildBuyBlocksWithPermit({
-  board: board.address, recipient: buyer, rects, permitValue: total, permit: splitSignature(sig, deadline),
+  board: board.address, recipient: buyer, rects, maxTotal: total, permit: splitSignature(sig, deadline),
 });
 ```
 
-`quote` and `buyError` are a TypeScript twin of the contract, pinned to it by vectors the contract
-generates — use them to preview a selection as the pointer moves, never to decide a buy. Builders
+`quoteBlocks` and `buyError` are a TypeScript twin of the contract, pinned to it by vectors the
+contract generates — use them to preview a selection as the pointer moves, never to decide a buy.
+A take's price moves with time, so they take `now` (seconds, the chain's clock), and the buy names
+the most it will pay (`maxTotal`): the contract refuses it if the cells cost more when it lands. Builders
 cover the rest: creating a board (`buildCreateImageBoard`, permissionless; the seller is named and
 signs nothing), writing a block's picture hash (`buildEditBlock`), editors, gifts, resale
 (`buildListBlock`, `buildBuyListedBlockWithPermit`) and lowering prices (`buildLowerPrices`).

@@ -38,7 +38,7 @@
  * **Verify both contracts on Blockscout afterwards**, so every board cloned from the implementation
  * has a readable contract page. The commands are printed at the end.
  */
-import { formatEther, formatUnits, keccak256, toHex, type Abi, type Address, type Hex } from 'viem';
+import { formatEther, formatUnits, keccak256, toFunctionSelector, toHex, type Abi, type Address, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -244,6 +244,8 @@ if (activeChain.testnet) {
       // A dear 2×2 zone at the top-left, and the bottom-right square kept by the deployer.
       zones: [{ col: 0, row: 0, cols: 2, rows: 2, cellPrice: 20_000n }],
       kept: [{ col: 29, row: 66, cols: 1, rows: 1 }],
+      // The Standard profile with no cooldown, so the smoke can take a block it has just sold.
+      terms: { takeBps: 14_000n, payoutBps: 11_500n, reversionBps: 9_700n, maxReversionWeeks: 52n, cooldownSecs: 0n },
     },
   ] as const;
   const { result } = await publicClient.simulateContract({
@@ -295,6 +297,24 @@ if (activeChain.testnet) {
   const owed = await read<bigint>(board, boardArt.abi, 'pendingWithdrawals', [deployer.address]);
   if (owed !== total - (total * protocolBps) / 10_000n) throw new Error(`the board's holder is owed ${owed}`);
   console.log(`  smoke                board ${board} (token ${boardToken}): kept block 1 the creator's; prices lowered to half; 2×2 across the zone and a 1×1 in one buy for ${formatUnits(total, 6)} by permit → ${holder}; holder credited; MetadataUpdate (gas ${receipt.gasUsed})`);
+
+  // A take: the deployer buys block 3's one cell back. Bought at half price, its floor is still the
+  // creation price, so the take is 10,000 × 1.4 and its owner is credited 10,000 × 1.15.
+  const kept1 = await read<`0x${string}`>(board, boardArt.abi, 'buyError', [[{ col: 29, row: 66, cols: 1, rows: 1 }]]);
+  if (kept1 !== toFunctionSelector('CellsKept()')) throw new Error(`the kept square answered ${kept1}, not CellsKept`);
+  const takeArea = [{ col: 5, row: 5, cols: 1, rows: 1 }];
+  const take = await read<bigint>(board, boardArt.abi, 'quoteBlocks', [takeArea]);
+  if (take !== 14_000n) throw new Error(`smoke take is ${take}, not 14,000`);
+  await write('mint', token, usdArt.abi, 'mint', [deployer.address, take]);
+  const taken = await signPermit(deployer, token, board, take, deadline);
+  const takeReceipt = await write('buyBlocksWithPermit (a take)', board, boardArt.abi, 'buyBlocksWithPermit', [
+    deployer.address, takeArea, take, deadline, taken.v, taken.r, taken.s,
+  ]);
+  const paidOut = await read<bigint>(board, boardArt.abi, 'pendingWithdrawals', [recipient]);
+  if (paidOut !== 11_500n) throw new Error(`the displaced owner is owed ${paidOut}, not 11,500`);
+  const left = await read<{ cellsLeft: number }>(board, boardArt.abi, 'blockOf', [3n]);
+  if (left.cellsLeft !== 0) throw new Error(`block 3 has ${left.cellsLeft} cells left, not 0`);
+  console.log(`  smoke take           block 3's cell taken for ${formatUnits(take, 6)}; its owner credited ${formatUnits(paidOut, 6)}; the kept square refused (gas ${takeReceipt.gasUsed})`);
 }
 
 console.log(`

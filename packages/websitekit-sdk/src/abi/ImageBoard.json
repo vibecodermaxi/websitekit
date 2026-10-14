@@ -30,6 +30,32 @@
   },
   {
     "type": "function",
+    "name": "MAX_BLOCKS_TAKEN_PER_BUY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_WORDS_PER_BUY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_ZONES",
     "inputs": [],
     "outputs": [
@@ -143,6 +169,21 @@
             "internalType": "uint32"
           },
           {
+            "name": "level",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "boughtAt",
+            "type": "uint40",
+            "internalType": "uint40"
+          },
+          {
+            "name": "cellsLeft",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
             "name": "contentHash",
             "type": "bytes32",
             "internalType": "bytes32"
@@ -200,6 +241,16 @@
             "internalType": "uint16"
           }
         ]
+      },
+      {
+        "name": "maxTotal",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -248,12 +299,12 @@
         ]
       },
       {
-        "name": "permitValue",
+        "name": "maxTotal",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "permitDeadline",
+        "name": "deadline",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -281,6 +332,47 @@
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "buyError",
+    "inputs": [
+      {
+        "name": "rects",
+        "type": "tuple[]",
+        "internalType": "struct ImageBoard.Rect[]",
+        "components": [
+          {
+            "name": "col",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "row",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "cols",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "rows",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "err",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -387,6 +479,25 @@
   },
   {
     "type": "function",
+    "name": "cellRow",
+    "inputs": [
+      {
+        "name": "row",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "words",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "cellSize",
     "inputs": [],
     "outputs": [
@@ -401,6 +512,32 @@
   {
     "type": "function",
     "name": "collection",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "cooldownSecs",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "creator",
     "inputs": [],
     "outputs": [
       {
@@ -476,6 +613,19 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "freeCells",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -560,7 +710,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "creator",
+        "name": "creator_",
         "type": "address",
         "internalType": "address"
       },
@@ -657,12 +807,57 @@
                 "internalType": "uint16"
               }
             ]
+          },
+          {
+            "name": "terms",
+            "type": "tuple",
+            "internalType": "struct ImageBoard.Terms",
+            "components": [
+              {
+                "name": "takeBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "payoutBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "reversionBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "maxReversionWeeks",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "cooldownSecs",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
           }
         ]
       }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "keptCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -716,6 +911,19 @@
   },
   {
     "type": "function",
+    "name": "maxReversionWeeks",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "ownerOf",
     "inputs": [
       {
@@ -729,6 +937,19 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "payoutBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -827,6 +1048,47 @@
   },
   {
     "type": "function",
+    "name": "quoteBlocks",
+    "inputs": [
+      {
+        "name": "rects",
+        "type": "tuple[]",
+        "internalType": "struct ImageBoard.Rect[]",
+        "components": [
+          {
+            "name": "col",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "row",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "cols",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "rows",
+            "type": "uint16",
+            "internalType": "uint16"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "total",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "resaleSplit",
     "inputs": [
       {
@@ -856,6 +1118,19 @@
   },
   {
     "type": "function",
+    "name": "reversionBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "rowBits",
     "inputs": [
       {
@@ -866,7 +1141,7 @@
     ],
     "outputs": [
       {
-        "name": "",
+        "name": "bits",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -941,6 +1216,19 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "takeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -1339,6 +1627,43 @@
   },
   {
     "type": "event",
+    "name": "CellsLost",
+    "inputs": [
+      {
+        "name": "fromBlockId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "toBlockId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "cells",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "payout",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "EditorSet",
     "inputs": [
       {
@@ -1450,7 +1775,17 @@
   },
   {
     "type": "error",
+    "name": "CellsKept",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "CellsTaken",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CoolingDown",
     "inputs": []
   },
   {
@@ -1470,7 +1805,17 @@
   },
   {
     "type": "error",
+    "name": "InvalidConfig",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidPrice",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidReversion",
     "inputs": []
   },
   {
@@ -1500,6 +1845,11 @@
   },
   {
     "type": "error",
+    "name": "NothingLeft",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NothingToWithdraw",
     "inputs": []
   },
@@ -1510,13 +1860,39 @@
   },
   {
     "type": "error",
+    "name": "PayoutBelowPrincipal",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "PriceChanged",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PriceTooHigh",
     "inputs": []
   },
   {
     "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeCastOverflowedUintDowncast",
+    "inputs": [
+      {
+        "name": "bits",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1528,6 +1904,26 @@
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "TakeBelowPayout",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TakeTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TooLarge",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TooManyBlocks",
+    "inputs": []
   },
   {
     "type": "error",

@@ -62,8 +62,8 @@ contract ImageBoardTest is ImageBoardBase {
         collection.createBoardFor(seller, short_);
     }
 
-    /// 1,000 rows, so the whole grid is one transaction. The bound is on ROWS, not pixels: 10,009 px
-    /// at 10 is still 1,000 rows, and 20,019 px at 20 is too.
+    /// 1,000 rows. The bound is on ROWS, not pixels: 10,009 px at 10 is still 1,000 rows, and
+    /// 20,019 px at 20 is too.
     function test_atMost1000RowsDown() public {
         (, uint16 rows) = _create(_config(100, 10_009, 10)).gridSize();
         assertEq(rows, 1_000);
@@ -77,17 +77,6 @@ contract ImageBoardTest is ImageBoardBase {
         cfg = _config(100, 15_015, 15);
         vm.expectRevert(ImageBoard.InvalidConfig.selector);
         collection.createBoardFor(seller, cfg);
-    }
-
-    /// The point of the row cap: the largest board's whole grid is one buy, within 4663's 32M
-    /// per-transaction cap with room for a wallet's estimate headroom.
-    function test_theLargestBoardsWholeGridIsOneTransaction() public {
-        board = _create(_config(2560, 10_000, 10));
-        vm.prank(alice);
-        usd.approve(address(board), type(uint256).max);
-        uint256 before = gasleft();
-        _buy(alice, alice, 0, 0, 256, 1_000);
-        assertLt(before - gasleft(), uint256(32_000_000) * 10 / 12, "the whole grid no longer fits one transaction with 1.2x headroom");
     }
 
     function test_aZeroPriceOrHashOrSellerIsRefused() public {
@@ -171,11 +160,12 @@ contract ImageBoardTest is ImageBoardBase {
         assertEq(board.blockCount(), 2);
     }
 
-    /// The whole grid is a legal block — the maximum is the image, nothing smaller.
+    /// The whole grid is a legal block when it is under the buy's cell cap (2,010 cells here).
     function test_aBlockMayBeTheWholeGrid() public {
         uint256 id = _buy(alice, alice, 0, 0, 30, 67);
         assertEq(board.ownerOf(id), alice);
-        assertEq(board.blockError(0, 0, 1, 1), ImageBoard.CellsTaken.selector);
+        assertEq(board.freeCells(), 0);
+        assertEq(board.blockError(0, 0, 1, 1), ImageBoard.CoolingDown.selector);
     }
 
     /// 256 across exercises the all-ones mask, where `1 << 256` would be zero.
@@ -196,38 +186,44 @@ contract ImageBoardTest is ImageBoardBase {
     function test_oneCellPastTheGridIsRefused() public {
         vm.prank(alice);
         vm.expectRevert(ImageBoard.OutsideGrid.selector);
-        board.buyBlocks(alice, _one(29, 0, 2, 1)); // into the unsold strip on the right
+        board.buyBlocks(alice, _one(29, 0, 2, 1), type(uint256).max, block.timestamp); // into the unsold strip on the right
 
         vm.prank(alice);
         vm.expectRevert(ImageBoard.OutsideGrid.selector);
-        board.buyBlocks(alice, _one(0, 66, 1, 2)); // below the last whole row
+        board.buyBlocks(alice, _one(0, 66, 1, 2), type(uint256).max, block.timestamp); // below the last whole row
 
         vm.prank(alice);
         vm.expectRevert(ImageBoard.OutsideGrid.selector);
-        board.buyBlocks(alice, _one(30, 0, 1, 1));
+        board.buyBlocks(alice, _one(30, 0, 1, 1), type(uint256).max, block.timestamp);
     }
 
     /// uint16 arithmetic would wrap here; the bound is computed wide.
     function test_aRectangleThatWouldWrapIsOutsideTheGrid() public {
         vm.prank(alice);
         vm.expectRevert(ImageBoard.OutsideGrid.selector);
-        board.buyBlocks(alice, _one(type(uint16).max, 0, 2, 1));
+        board.buyBlocks(alice, _one(type(uint16).max, 0, 2, 1), type(uint256).max, block.timestamp);
     }
 
     function test_anEmptyBlockIsRefused() public {
         vm.prank(alice);
         vm.expectRevert(ImageBoard.EmptyBlock.selector);
-        board.buyBlocks(alice, _one(0, 0, 0, 1));
+        board.buyBlocks(alice, _one(0, 0, 0, 1), type(uint256).max, block.timestamp);
         vm.prank(alice);
         vm.expectRevert(ImageBoard.EmptyBlock.selector);
-        board.buyBlocks(alice, _one(0, 0, 1, 0));
+        board.buyBlocks(alice, _one(0, 0, 1, 0), type(uint256).max, block.timestamp);
     }
 
-    function test_overlappingOneCornerCellIsRefused() public {
+    /// One sold cell still in its cooldown refuses the buy; a second later it is for sale.
+    function test_oneCornerCellInItsCooldownIsRefused() public {
         _buy(alice, alice, 10, 10, 3, 3);
+        vm.warp(block.timestamp + 3_600 - 1);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.CellsTaken.selector);
-        board.buyBlocks(bob, _one(12, 12, 3, 3)); // shares only (12, 12)
+        vm.expectRevert(ImageBoard.CoolingDown.selector);
+        board.buyBlocks(bob, _one(12, 12, 3, 3), type(uint256).max, block.timestamp); // shares only (12, 12)
+
+        vm.warp(block.timestamp + 1);
+        uint256 id = _buy(bob, bob, 12, 12, 3, 3);
+        assertEq(board.ownerOf(id), bob);
     }
 
     function test_touchingEdgesIsAllowed() public {
@@ -245,8 +241,8 @@ contract ImageBoardTest is ImageBoardBase {
         uint256 balance = usd.balanceOf(bob);
 
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.CellsTaken.selector);
-        board.buyBlocks(bob, _one(4, 5, 3, 3)); // rows 5 and 7 are free; row 6 collides
+        vm.expectRevert(ImageBoard.CoolingDown.selector);
+        board.buyBlocks(bob, _one(4, 5, 3, 3), type(uint256).max, block.timestamp); // rows 5 and 7 are free; row 6 collides
 
         assertEq(board.rowBits(5), row5);
         assertEq(board.rowBits(7), 0);
@@ -257,7 +253,7 @@ contract ImageBoardTest is ImageBoardBase {
     function test_aZeroRecipientIsRefused() public {
         vm.prank(alice);
         vm.expectRevert(ImageBoard.ZeroAddress.selector);
-        board.buyBlocks(address(0), _one(0, 0, 1, 1));
+        board.buyBlocks(address(0), _one(0, 0, 1, 1), type(uint256).max, block.timestamp);
     }
 
     function test_aPayerWithoutAllowanceIsRefused() public {
@@ -265,13 +261,13 @@ contract ImageBoardTest is ImageBoardBase {
         usd.mint(stranger, 1e6);
         vm.prank(stranger);
         vm.expectRevert();
-        board.buyBlocks(stranger, _one(0, 0, 1, 1));
+        board.buyBlocks(stranger, _one(0, 0, 1, 1), type(uint256).max, block.timestamp);
     }
 
     /// `blockError` is the one gate: whatever it says, the buy does.
     function test_blockErrorNamesExactlyWhatTheBuyRefusesWith() public {
         _buy(alice, alice, 0, 0, 2, 2);
-        assertEq(board.blockError(1, 1, 2, 2), ImageBoard.CellsTaken.selector);
+        assertEq(board.blockError(1, 1, 2, 2), ImageBoard.CoolingDown.selector);
         assertEq(board.blockError(29, 0, 2, 1), ImageBoard.OutsideGrid.selector);
         assertEq(board.blockError(0, 0, 0, 1), ImageBoard.EmptyBlock.selector);
         assertEq(board.blockError(2, 0, 2, 2), bytes4(0));

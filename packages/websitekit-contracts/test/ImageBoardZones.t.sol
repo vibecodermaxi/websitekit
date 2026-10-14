@@ -215,31 +215,18 @@ contract ImageBoardZonesTest is ImageBoardBase {
         assertEq(_create(cfg).zones().length, most);
     }
 
-    /// The ceiling exists for this: the largest board, with every zone it may have, each one under
-    /// the whole-grid buy, is created and bought whole in one transaction each, with the headroom
-    /// `test_theLargestBoardsWholeGridIsOneTransaction` keeps.
-    function test_theLargestBoardWithTheMostZonesFitsOneTransactionEach() public {
+    /// The ceiling exists for this: the largest board, with every zone it may have, is created in
+    /// one transaction with 1.2x headroom. What a buy under them costs is `ImageBoardTakeovers.t.sol`'s.
+    function test_theLargestBoardWithTheMostZonesIsCreatedInOneTransaction() public {
         uint256 most = implementation.MAX_ZONES();
         ImageBoard.Config memory cfg = _config(2560, 10_000, 10);
         cfg.zones = new ImageBoard.Zone[](most);
         for (uint256 i = 0; i < most; i++) {
             cfg.zones[i] = ImageBoard.Zone({ col: 0, row: uint16(i), cols: 256, rows: 1, cellPrice: DEAR });
         }
-        uint256 cap = uint256(32_000_000) * 10 / 12;
-
         uint256 before = gasleft();
-        ImageBoard b = _create(cfg);
-        assertLt(before - gasleft(), cap, "creating the most zones no longer fits one transaction");
-
-        _use(b);
-        // Cold, as a real buy finds them: the zones were written earlier in this same test, and a
-        // warm read is ~2,000 gas cheaper per zone — the measurement would flatter the ceiling.
-        vm.cool(address(b));
-        vm.cool(address(usd));
-        before = gasleft();
-        _buy(alice, alice, 0, 0, 256, 1_000);
-        emit log_named_uint("whole-grid buy under the most zones, gas", before - gasleft());
-        assertLt(before - gasleft(), cap, "the whole grid under the most zones no longer fits one transaction");
+        _create(cfg);
+        assertLt(before - gasleft(), uint256(32_000_000) * 10 / 12, "creating the most zones no longer fits one transaction");
     }
 
     // ---------------------------------------------------------------------
@@ -284,11 +271,11 @@ contract ImageBoardZonesTest is ImageBoardBase {
 
     function test_keptCellsAreNotForSale() public {
         _use(_create(_kept()));
-        assertEq(board.blockError(3, 1, 2, 1), ImageBoard.CellsTaken.selector, "the kept block's last cell");
+        assertEq(board.blockError(3, 1, 2, 1), ImageBoard.CellsKept.selector, "the kept block's last cell");
         assertEq(board.blockError(4, 0, 1, 2), bytes4(0), "the column beside it is free");
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.CellsTaken.selector);
-        board.buyBlocks(alice, _one(3, 1, 2, 1));
+        vm.expectRevert(ImageBoard.CellsKept.selector);
+        board.buyBlocks(alice, _one(3, 1, 2, 1), type(uint256).max, block.timestamp);
         // The next bought block takes the next id.
         assertEq(_buy(alice, alice, 4, 0, 1, 2), 3);
     }

@@ -15,6 +15,7 @@ function invariantBoardConfig(address token) pure returns (ImageBoard.Config mem
     cfg.cellSize = 10;
     cfg.cellPrice = 10_003;
     cfg.imageHash = keccak256("img");
+    cfg.terms = ImageBoard.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 });
     cfg.zones = new ImageBoard.Zone[](3);
     cfg.zones[0] = ImageBoard.Zone({ col: 0, row: 0, cols: 4, rows: 3, cellPrice: 30_011 });
     cfg.zones[1] = ImageBoard.Zone({ col: 6, row: 5, cols: 3, rows: 4, cellPrice: 2_003 });
@@ -50,6 +51,14 @@ function invariantBoardConfig(address token) pure returns (ImageBoard.Config mem
 /// nothing, and each block priced on its own. Whoever the model says holds the board (and, to be
 /// refused, anyone else) lowers prices; the model keeps its own share and scales each block's
 /// cell-by-cell total by it, rounding up.
+///
+/// **Takeovers (2026-10-14)**: any cell may be bought, sold or not. The model keeps its own cell →
+/// block map, each block's level and when it was bought, and a clock the handler moves (`wait`), and
+/// decides every buy before the call: refused over a kept cell while the creator owns it or a cell
+/// in its cooldown; otherwise each covered block's part priced cell by cell at its floor (its own
+/// reversion loop, written here), the free part at the model's share. EVERY party's credit is
+/// measured across the call against the model's, so a payout to the wrong owner, at the wrong floor,
+/// or a holder's share that is off by a unit, each shows.
 contract ImageBoardHandler is Test {
     ImageBoard internal board;
     ImageBoardCollection internal collection;
@@ -69,8 +78,14 @@ contract ImageBoardHandler is Test {
     uint16 public constant COLS = 12;
     uint16 public constant ROWS = 10;
 
-    /// cell (col, row) → token id, 0 = free.
+    /// cell (col, row) → block id, 0 = free.
     mapping(uint256 => mapping(uint256 => uint256)) public ghostCell;
+    /// What each block cost over the creation price of its cells, in bps, rounded up; and when.
+    mapping(uint256 => uint256) public ghostLevel;
+    mapping(uint256 => uint256) public ghostBoughtAt;
+    address public ghostCreator;
+    /// Credited to displaced owners by takes.
+    uint256 public ghostPayoutsCredited;
     mapping(uint256 => address) public ghostOwner;
     mapping(uint256 => uint16[4]) internal _ghostShape;
     uint256 public ghostBlocks;
@@ -98,6 +113,7 @@ contract ImageBoardHandler is Test {
     uint256 public violStrangerListed;
     uint256 public violListingOutlivedOwner;
     uint256 public violCutModelDisagrees;
+    uint256 public violListedWithNothingLeft;
 
     uint256 public ghostCalls;
     uint256 public ghostBuysOk;
@@ -121,6 +137,14 @@ contract ImageBoardHandler is Test {
     uint256 public ghostCuts;
     uint256 public ghostCutsRefused;
     uint256 public ghostBuysAfterACut;
+    uint256 public ghostTakesOk;
+    uint256 public ghostTakesAfterAWeek;
+    uint256 public ghostRefusedCooling;
+    uint256 public ghostRefusedKept;
+    uint256 public ghostKeptTakenAfterGift;
+    uint256 public ghostListingsEndedByTake;
+    uint256 public ghostListRefusedNothingLeft;
+    uint256 public ghostWaits;
 
     constructor(
         ImageBoard board_,
@@ -138,8 +162,11 @@ contract ImageBoardHandler is Test {
         actors = actors_;
         parties = [seller_, actors_[0], actors_[1], actors_[2], actors_[3], protocol_];
         ghostHolder = seller_;
-        // The kept block, made with the board: the seller's, paid by nobody.
+        ghostCreator = seller_;
+        // The kept block, made with the board: the seller's, paid by nobody, worth its creation prices.
         _record(1, seller_, 10, 8, 2, 2);
+        ghostLevel[1] = 10_000;
+        ghostBoughtAt[1] = block.timestamp;
     }
 
     function _one(uint16 col, uint16 row, uint16 cols, uint16 rows) internal pure returns (ImageBoard.Rect[] memory rects) {
@@ -155,24 +182,108 @@ contract ImageBoardHandler is Test {
         return 10_003;
     }
 
-    function _modelTotal(uint16 col, uint16 row, uint16 cols, uint16 rows) internal pure returns (uint256 total, bool mixed) {
-        uint256 first = _cellPrice(col, row);
-        for (uint256 c = col; c < uint256(col) + cols; c++) {
-            for (uint256 r = row; r < uint256(row) + rows; r++) {
-                uint256 p = _cellPrice(c, r);
-                total += p;
-                if (p != first) mixed = true;
+    /// One covered block's part of one rectangle, as the model prices it.
+    struct Part {
+        uint256 id;
+        uint256 cells;
+        uint256 base;
+        uint256 charged;
+        uint256 payout;
+        uint256 cut;
+    }
+
+    struct Plan {
+        uint256 total;
+        uint256 cut;
+        uint256 base;
+        uint256 level;
+        uint256 freeBase;
+        uint256 freeCells;
+        bool mixed;
+        Part[] parts;
+        uint256 n;
+    }
+
+    /// Why the model refuses a buy: nothing (0), its shape (1), two of its rectangles share a cell
+    /// (2), a kept cell its creator still owns (3), a cell in its cooldown (4).
+    uint8 internal constant OK = 0;
+    uint8 internal constant SHAPE = 1;
+    uint8 internal constant SELF = 2;
+    uint8 internal constant KEPT = 3;
+    uint8 internal constant COOLING = 4;
+
+    /// A sold block's floor level now: its level, cut by 3% per whole week since it was bought (at
+    /// most 52 weeks, truncating each week), never below the creation price.
+    function _modelFloor(uint256 id) internal view returns (uint256 level) {
+        level = ghostLevel[id];
+        uint256 weeks_ = (block.timestamp - ghostBoughtAt[id]) / 604_800;
+        if (weeks_ > 52) weeks_ = 52;
+        for (uint256 w = 0; w < weeks_; w++) {
+            level = level * 9_700 / 10_000;
+        }
+        if (level < 10_000) level = 10_000;
+    }
+
+    /// One rectangle, cell by cell: who holds each, what each was created at, and what the whole
+    /// costs. Covered blocks are found by a linear search over the ones met so far.
+    function _modelPlan(ImageBoard.Rect memory k) internal view returns (uint8 why, Plan memory p) {
+        if (k.cols == 0 || k.rows == 0) return (SHAPE, p);
+        if (uint256(k.col) + k.cols > COLS || uint256(k.row) + k.rows > ROWS) return (SHAPE, p);
+        p.parts = new Part[](uint256(k.cols) * k.rows);
+        uint256 first = _cellPrice(k.col, k.row);
+        for (uint256 r = k.row; r < uint256(k.row) + k.rows; r++) {
+            for (uint256 c = k.col; c < uint256(k.col) + k.cols; c++) {
+                uint256 price = _cellPrice(c, r);
+                if (price != first) p.mixed = true;
+                p.base += price;
+                uint256 id = ghostCell[c][r];
+                if (id == 0) {
+                    p.freeBase += price;
+                    p.freeCells++;
+                    continue;
+                }
+                if (id == 1 && ghostOwner[1] == ghostCreator) return (KEPT, p);
+                if (block.timestamp < ghostBoughtAt[id] + 3_600) return (COOLING, p);
+                uint256 j = 0;
+                while (j < p.n && p.parts[j].id != id) j++;
+                if (j == p.n) p.parts[p.n++].id = id;
+                p.parts[j].cells++;
+                p.parts[j].base += price;
+            }
+        }
+        if (p.freeCells != 0) {
+            uint256 scaled = p.freeBase * ghostPriceBps;
+            uint256 free = scaled / 10_000 + (scaled % 10_000 == 0 ? 0 : 1);
+            p.total = free;
+            p.cut = free * protocolBps / 10_000;
+        }
+        for (uint256 j = 0; j < p.n; j++) {
+            Part memory part = p.parts[j];
+            uint256 floor_ = _modelFloor(part.id);
+            part.charged = part.base * floor_ * 14_000 / 100_000_000;
+            part.payout = part.base * floor_ * 11_500 / 100_000_000;
+            part.cut = part.base * floor_ * protocolBps / 100_000_000;
+            p.total += part.charged;
+            p.cut += part.cut;
+        }
+        uint256 lv = p.total * 10_000;
+        p.level = lv / p.base + (lv % p.base == 0 ? 0 : 1);
+    }
+
+    function _cellsLeft(uint256 id) public view returns (uint256 n) {
+        uint16[4] memory sh = _ghostShape[id];
+        for (uint256 c = sh[0]; c < uint256(sh[0]) + sh[2]; c++) {
+            for (uint256 r = sh[1]; r < uint256(sh[1]) + sh[3]; r++) {
+                if (ghostCell[c][r] == id) n++;
             }
         }
     }
 
-    /// A block's price now: its cell-by-cell total at the model's share, rounded UP — written as a
-    /// floor plus one when anything is left over, not the contract's `(x + d - 1) / d`.
-    function _modelPrice(uint16 col, uint16 row, uint16 cols, uint16 rows) internal view returns (uint256 price, bool mixed) {
-        uint256 total;
-        (total, mixed) = _modelTotal(col, row, cols, rows);
-        uint256 scaled = total * ghostPriceBps;
-        price = scaled / 10_000 + (scaled % 10_000 == 0 ? 0 : 1);
+    function _partyIndex(address a) internal view returns (uint256) {
+        for (uint256 i = 0; i < 6; i++) {
+            if (parties[i] == a) return i;
+        }
+        revert("not a party");
     }
 
     function party(uint256 i) external view returns (address) {
@@ -217,7 +328,12 @@ contract ImageBoardHandler is Test {
     function buyOverATakenCell(uint256 payerSeed, uint256 recipientSeed, uint256 idSeed, uint16 cols, uint16 rows) external {
         ghostCalls++;
         if (ghostBlocks == 0) return;
-        uint16[4] memory taken = _ghostShape[idSeed % ghostBlocks + 1];
+        uint256 id = idSeed % ghostBlocks + 1;
+        // Half the time a listed block, so a take ending a listing is not left to chance.
+        for (uint256 i = 0; (idSeed >> 128) % 2 == 0 && i < ghostBlocks && ghostList[id] == 0; i++) {
+            id = id % ghostBlocks + 1;
+        }
+        uint16[4] memory taken = _ghostShape[id];
         _tryBuy(payerSeed, recipientSeed, taken[0], taken[1], uint16(bound(cols, 1, 3)), uint16(bound(rows, 1, 3)));
     }
 
@@ -285,7 +401,7 @@ contract ImageBoardHandler is Test {
     function _freeCellFrom(uint256 seed) internal view returns (uint16 col, uint16 row, bool found) {
         uint256 cells = uint256(COLS) * ROWS;
         for (uint256 i = 0; i < cells; i++) {
-            uint256 at = (seed + i) % cells;
+            uint256 at = (seed % cells + i) % cells;
             if (ghostCell[at % COLS][at / COLS] == 0) return (uint16(at % COLS), uint16(at / COLS), true);
         }
     }
@@ -295,7 +411,7 @@ contract ImageBoardHandler is Test {
         address payer = actors[p];
         address recipient = actors[(p + 1 + recipientSeed % 3) % 4]; // never the payer
 
-        (bool modelOk, bool selfOverlap) = _modelAcceptsAll(rects);
+        (uint8 why, Plan[] memory plans) = _modelAll(rects);
         Before memory b = Before({
             board: usd.balanceOf(address(board)),
             payer: usd.balanceOf(payer),
@@ -304,40 +420,162 @@ contract ImageBoardHandler is Test {
             count: board.blockCount(),
             rows: _rowsDigest()
         });
+        uint256[6] memory owedBefore;
+        for (uint256 i = 0; i < 6; i++) {
+            owedBefore[i] = board.pendingWithdrawals(parties[i]);
+        }
 
         vm.prank(payer);
-        try board.buyBlocks(recipient, rects) returns (uint256 first) {
-            if (!modelOk) {
+        try board.buyBlocks(recipient, rects, type(uint256).max, block.timestamp) returns (uint256 first) {
+            if (why != OK) {
                 violAcceptedWhatModelRefused++;
                 return;
             }
-            ghostBuysOk++;
-            if (rects.length > 1) ghostMultiBuysOk++;
-            if (ghostBoardMoves > 0) ghostBuysAfterAMove++;
-            if (ghostPriceBps < 10_000) ghostBuysAfterACut++;
-            uint256 total;
-            uint256 cut;
-            for (uint256 i = 0; i < rects.length; i++) {
-                ImageBoard.Rect memory k = rects[i];
-                (uint256 price, bool mixed) = _modelPrice(k.col, k.row, k.cols, k.rows);
-                if (mixed) ghostBuysMixedPrice++;
-                total += price;
-                // Each block cut on its own, as if bought alone.
-                cut += (price * protocolBps) / 10_000;
-                if (board.ownerOf(first + i) != recipient) violWrongRecipient++;
-                _record(first + i, recipient, k.col, k.row, k.cols, k.rows);
-            }
-            _measureBuy(b, payer, total, cut);
+            _landed(rects, plans, first, recipient, payer, b, owedBefore);
         } catch {
-            if (modelOk) violRefusedWhatModelAccepted++;
-            if (selfOverlap) ghostMultiBuysSelfOverlap++;
+            if (why == OK) violRefusedWhatModelAccepted++;
+            if (why == SELF) ghostMultiBuysSelfOverlap++;
+            if (why == KEPT) ghostRefusedKept++;
+            if (why == COOLING) ghostRefusedCooling++;
             // Counted for single rectangles only: a pair's refusal may be either rectangle's.
             ImageBoard.Rect memory k = rects[0];
-            if (rects.length > 1 || k.cols == 0 || k.rows == 0) { }
-            else if (uint256(k.col) + k.cols > COLS || uint256(k.row) + k.rows > ROWS) ghostBuysOutside++;
-            else ghostBuysTaken++;
+            if (rects.length == 1 && why == SHAPE && k.cols != 0 && k.rows != 0) ghostBuysOutside++;
+            if (rects.length == 1 && (why == KEPT || why == COOLING)) ghostBuysTaken++;
             if (usd.balanceOf(address(board)) != b.board || board.blockCount() != b.count || _rowsDigest() != b.rows) {
                 violRefusedBuyChangedState++;
+            }
+        }
+    }
+
+    /// Every rectangle against the model's map and against the ones before it in the same buy.
+    function _modelAll(ImageBoard.Rect[] memory rects) internal view returns (uint8 why, Plan[] memory plans) {
+        plans = new Plan[](rects.length);
+        for (uint256 i = 0; i < rects.length; i++) {
+            ImageBoard.Rect memory k = rects[i];
+            if (k.cols == 0 || k.rows == 0 || uint256(k.col) + k.cols > COLS || uint256(k.row) + k.rows > ROWS) {
+                return (SHAPE, plans);
+            }
+            for (uint256 j = 0; j < i; j++) {
+                ImageBoard.Rect memory e = rects[j];
+                bool apart = uint256(k.col) + k.cols <= e.col || uint256(e.col) + e.cols <= k.col
+                    || uint256(k.row) + k.rows <= e.row || uint256(e.row) + e.rows <= k.row;
+                if (!apart) return (SELF, plans);
+            }
+            (why, plans[i]) = _modelPlan(k);
+            if (why != OK) return (why, plans);
+        }
+    }
+
+    /// A buy the model accepted went through: check what it moved against the plan, then take the
+    /// plan into the model.
+    function _landed(
+        ImageBoard.Rect[] memory rects,
+        Plan[] memory plans,
+        uint256 first,
+        address recipient,
+        address payer,
+        Before memory b,
+        uint256[6] memory owedBefore
+    ) internal {
+        ghostBuysOk++;
+        if (rects.length > 1) ghostMultiBuysOk++;
+        if (ghostBoardMoves > 0) ghostBuysAfterAMove++;
+        if (ghostPriceBps < 10_000) ghostBuysAfterACut++;
+        uint256[6] memory expected;
+        uint256 total;
+        for (uint256 i = 0; i < rects.length; i++) {
+            Plan memory plan = plans[i];
+            if (plan.mixed) ghostBuysMixedPrice++;
+            total += plan.total;
+            uint256 payouts;
+            for (uint256 j = 0; j < plan.n; j++) {
+                Part memory part = plan.parts[j];
+                expected[_partyIndex(ghostOwner[part.id])] += part.payout;
+                ghostCredited[ghostOwner[part.id]] += part.payout;
+                payouts += part.payout;
+                if (ghostList[part.id] != 0) ghostListingsEndedByTake++;
+                ghostList[part.id] = 0;
+                if (part.id == 1 && ghostOwner[1] != ghostCreator) ghostKeptTakenAfterGift++;
+                if (block.timestamp >= ghostBoughtAt[part.id] + 604_800) ghostTakesAfterAWeek++;
+            }
+            if (plan.n != 0) ghostTakesOk++;
+            uint256 rest = plan.total - plan.cut - payouts;
+            expected[_partyIndex(ghostHolder)] += rest;
+            expected[5] += plan.cut;
+            ghostPaidIn += plan.total;
+            ghostSellerCredited += rest;
+            ghostProtocolCredited += plan.cut;
+            ghostPayoutsCredited += payouts;
+            ghostCredited[ghostHolder] += rest;
+            ghostCredited[protocol] += plan.cut;
+
+            ImageBoard.Rect memory k = rects[i];
+            if (board.ownerOf(first + i) != recipient) violWrongRecipient++;
+            _record(first + i, recipient, k.col, k.row, k.cols, k.rows);
+            ghostLevel[first + i] = plan.level;
+            ghostBoughtAt[first + i] = block.timestamp;
+        }
+        if (usd.balanceOf(address(board)) - b.board != total || b.payer - usd.balanceOf(payer) != total) {
+            violMoneyAcrossBuy++;
+        }
+        for (uint256 i = 0; i < 6; i++) {
+            if (board.pendingWithdrawals(parties[i]) - owedBefore[i] != expected[i]) {
+                if (parties[i] == ghostHolder) violPaidTheWrongHolder++;
+                else violMoneyAcrossBuy++;
+            }
+        }
+    }
+
+    /// Time passes: cooldowns end and levels revert. Up to two weeks a step.
+    function wait(uint256 secs) external {
+        ghostCalls++;
+        vm.warp(block.timestamp + bound(secs, 0, 2 weeks));
+        ghostWaits++;
+    }
+
+    /// The kept block goes to someone else, or back to its creator — so a take of it is tried both
+    /// while it is protected and while it is not.
+    function giveKept(uint256 toSeed) external {
+        ghostCalls++;
+        _keptTriedBeforeItLeaves(1, toSeed);
+        address from = ghostOwner[1];
+        address to = from == ghostCreator ? actors[toSeed % 4] : ghostCreator;
+        vm.prank(from);
+        board.transferBlock(1, to);
+        ghostOwner[1] = to;
+        ghostList[1] = 0;
+        ghostTransfers++;
+    }
+
+    /// Before the kept block first leaves its creator — by `giveKept`, `transfer` or a resale — one buy
+    /// is tried over it while it is whole and protected: once it has gone, it can be taken whole and
+    /// its protection never tried again in that run (seen on three seeds, 2026-10-14).
+    function _keptTriedBeforeItLeaves(uint256 id, uint256 seed) internal {
+        if (id == 1 && ghostRefusedKept == 0 && ghostOwner[1] == ghostCreator) _tryBuy(seed, seed >> 8, 10, 8, 1, 1);
+    }
+
+    /// A buy over a cell the kept block still holds. Until one has been refused, the block is first
+    /// handed back to its creator: a block's cells never come back, so a run that gave it away and
+    /// saw it taken whole could otherwise never try the protection at all (seen 2026-10-14).
+    function buyKept(uint256 payerSeed, uint256 recipientSeed, uint256 cellSeed) external {
+        ghostCalls++;
+        uint256 left = _cellsLeft(1);
+        if (left == 0) return;
+        if (ghostRefusedKept == 0 && ghostOwner[1] != ghostCreator) {
+            vm.prank(ghostOwner[1]);
+            board.transferBlock(1, ghostCreator);
+            ghostOwner[1] = ghostCreator;
+            ghostList[1] = 0;
+        }
+        uint256 n = cellSeed % left;
+        for (uint16 r = 8; r < 10; r++) {
+            for (uint16 c = 10; c < 12; c++) {
+                if (ghostCell[c][r] != 1) continue;
+                if (n == 0) {
+                    _tryBuy(payerSeed, recipientSeed, c, r, 1, 1);
+                    return;
+                }
+                n--;
             }
         }
     }
@@ -360,21 +598,6 @@ contract ImageBoardHandler is Test {
         }
     }
 
-    /// The holder's credit is measured on the MODEL's holder: if the board paid someone else, this
-    /// delta is zero and the violation fires.
-    function _measureBuy(Before memory b, address payer, uint256 total, uint256 cut) internal {
-        if (
-            usd.balanceOf(address(board)) - b.board != total || b.payer - usd.balanceOf(payer) != total
-                || board.pendingWithdrawals(protocol) - b.protocolOwed != cut
-        ) violMoneyAcrossBuy++;
-        if (board.pendingWithdrawals(ghostHolder) - b.holderOwed != total - cut) violPaidTheWrongHolder++;
-        ghostPaidIn += total;
-        ghostSellerCredited += total - cut;
-        ghostProtocolCredited += cut;
-        ghostCredited[ghostHolder] += total - cut;
-        ghostCredited[protocol] += cut;
-    }
-
     function _record(uint256 id, address recipient, uint16 col, uint16 row, uint16 cols, uint16 rows) internal {
         ghostBlocks = id;
         ghostOwner[id] = recipient;
@@ -395,6 +618,7 @@ contract ImageBoardHandler is Test {
         for (uint256 i = 0; toSeed % 2 == 0 && i < ghostBlocks && ghostList[id] == 0; i++) {
             id = id % ghostBlocks + 1;
         }
+        _keptTriedBeforeItLeaves(id, toSeed);
         address from = ghostOwner[id];
         address to = actors[(toSeed >> 1) % 4];
         if (ghostList[id] != 0) ghostListingsEndedByGift++;
@@ -417,9 +641,14 @@ contract ImageBoardHandler is Test {
         // Prices that do not divide by 20, so the cut and the royalty round.
         price = bound(price, 1, 50_000_003);
         vm.prank(ghostOwner[id]);
-        board.listBlock(id, price);
-        ghostList[id] = price;
-        ghostListings++;
+        try board.listBlock(id, price) {
+            if (_cellsLeft(id) == 0) violListedWithNothingLeft++;
+            ghostList[id] = price;
+            ghostListings++;
+        } catch {
+            if (_cellsLeft(id) != 0) violListedWithNothingLeft++;
+            ghostListRefusedNothingLeft++;
+        }
     }
 
     function delist(uint256 idSeed) external {
@@ -473,6 +702,10 @@ contract ImageBoardHandler is Test {
         // Nothing for sale: its owner lists it first. Without this a run where every listing had
         // already sold or been given away tried no resale at all, and the stale-price coverage
         // check failed on a seed with nothing wrong (seen 2026-10-11).
+        for (uint256 i = 0; i < ghostBlocks && ghostList[id] == 0 && _cellsLeft(id) == 0; i++) {
+            id = id % ghostBlocks + 1;
+        }
+        if (ghostList[id] == 0 && _cellsLeft(id) == 0) return; // every block taken to nothing
         if (ghostList[id] == 0) {
             uint256 price = 10_003 + idSeed % 1_000_000;
             vm.prank(ghostOwner[id]);
@@ -480,6 +713,7 @@ contract ImageBoardHandler is Test {
             ghostList[id] = price;
             ghostListings++;
         }
+        _keptTriedBeforeItLeaves(id, payerSeed);
         address payer = actors[payerSeed % 4];
         address recipient = actors[recipientSeed % 4];
         address from = ghostOwner[id];
@@ -597,41 +831,14 @@ contract ImageBoardHandler is Test {
     // The model
     // -----------------------------------------------------------------
 
-    function _modelAccepts(uint16 col, uint16 row, uint16 cols, uint16 rows) internal view returns (bool) {
-        if (cols == 0 || rows == 0) return false;
-        if (uint256(col) + cols > COLS || uint256(row) + rows > ROWS) return false;
-        for (uint256 c = col; c < uint256(col) + cols; c++) {
-            for (uint256 r = row; r < uint256(row) + rows; r++) {
-                if (ghostCell[c][r] != 0) return false;
-            }
-        }
-        return true;
-    }
-
-    /// Every rectangle against the model's grid and against the ones before it in the same buy.
-    /// `selfOverlap`: refused only because two of them share a cell.
-    function _modelAcceptsAll(ImageBoard.Rect[] memory rects) internal view returns (bool ok, bool selfOverlap) {
-        ok = true;
-        for (uint256 i = 0; i < rects.length; i++) {
-            ImageBoard.Rect memory k = rects[i];
-            if (!_modelAccepts(k.col, k.row, k.cols, k.rows)) return (false, false);
-            for (uint256 j = 0; j < i; j++) {
-                ImageBoard.Rect memory e = rects[j];
-                bool apart = uint256(k.col) + k.cols <= e.col || uint256(e.col) + e.cols <= k.col
-                    || uint256(k.row) + k.rows <= e.row || uint256(e.row) + e.rows <= k.row;
-                if (!apart) return (false, true);
-            }
-        }
-    }
-
     function _rowsDigest() internal view returns (bytes32 d) {
         for (uint256 r = 0; r < ROWS + 2; r++) {
-            d = keccak256(abi.encode(d, board.rowBits(r)));
+            d = keccak256(abi.encode(d, board.cellRow(r)));
         }
     }
 }
 
-/// @notice The core properties: no shared cells; money in equals
+/// @notice The core properties: every cell held by exactly the block the model says; money in equals
 /// seller credit plus protocol cut; the minted owner is `recipient`. Plus the one the spec promises in
 /// words — no function takes a block from its owner — and, since the board became the NFT
 /// (2026-10-09), that every sale credits whoever held the board at that moment.
@@ -641,6 +848,10 @@ contract ImageBoardHandler is Test {
 /// And: a buy of several rectangles is all or nothing, each block priced and cut on its own; only
 /// the board's holder lowers prices, only ever down, and every buy after is charged the model's
 /// scaled price.
+///
+/// Since 2026-10-14 (takeovers): a block's cells left, level and time of purchase equal the model's;
+/// every party — displaced owners, the board's holder, the protocol — is credited across each buy
+/// exactly what the model priced; a kept block is never taken while its creator owns it.
 ///
 /// One `invariant_` on purpose: each is a separate campaign, so grouping keeps the run short.
 /// 64 runs × 500 calls: the model is checked cell by cell after every call, and 256 runs took
@@ -696,25 +907,31 @@ contract ImageBoardInvariantTest is Test {
         assertEq(handler.violResaleModelDisagrees(), 0, "a resale went through, or was refused, against the model");
         assertEq(handler.violStrangerListed(), 0, "someone other than the owner listed or delisted a block");
         assertEq(handler.violListingOutlivedOwner(), 0, "a listing survived its block changing hands");
+        assertEq(handler.violListedWithNothingLeft(), 0, "a block with no cells was listed, or one with cells refused");
         for (uint256 id = 1; id <= handler.ghostBlocks(); id++) {
             assertEq(board.listPrice(id), handler.ghostList(id), "a listing the model does not know");
         }
     }
 
-    /// The bitmap equals the model's occupancy cell for cell, and the model only ever accepted
-    /// disjoint blocks — so a buy the board took over a taken cell shows up as a violation.
+    /// The board's cell map equals the model's, cell for cell, and so does what each block has left,
+    /// its level and when it was bought. A buy the board took that the model refused — over a kept
+    /// cell, a cooling one, or itself — shows up as a violation.
     function _noSharedCells() internal view {
-        assertEq(handler.violAcceptedWhatModelRefused(), 0, "the board sold a block the model says overlaps or is outside");
-        assertEq(handler.violRefusedWhatModelAccepted(), 0, "the board refused a block the model says is free");
+        assertEq(handler.violAcceptedWhatModelRefused(), 0, "the board sold cells the model refuses");
+        assertEq(handler.violRefusedWhatModelAccepted(), 0, "the board refused a buy the model accepts");
         assertEq(handler.violRefusedBuyChangedState(), 0, "a refused buy changed state");
 
         for (uint256 r = 0; r < handler.ROWS() + 2; r++) {
-            uint256 expected;
+            uint256[] memory words = board.cellRow(r);
+            uint256 bits;
             for (uint256 c = 0; c < handler.COLS(); c++) {
-                if (handler.ghostCell(c, r) != 0) expected |= uint256(1) << c;
+                uint256 id = (words[c / 8] >> ((c % 8) * 32)) & type(uint32).max;
+                assertEq(id, r < handler.ROWS() ? handler.ghostCell(c, r) : 0, "the cell map and the model disagree");
+                if (id != 0) bits |= uint256(1) << c;
             }
-            assertEq(board.rowBits(r), expected, "the bitmap and the model disagree");
+            assertEq(board.rowBits(r), bits, "rowBits is not the map's");
         }
+        uint256 free = uint256(handler.COLS()) * handler.ROWS();
         for (uint256 id = 1; id <= handler.ghostBlocks(); id++) {
             ImageBoard.Block memory b = board.blockOf(id);
             uint16[4] memory s = handler.shape(id);
@@ -722,12 +939,13 @@ contract ImageBoardInvariantTest is Test {
             assertEq(b.row, s[1], "a block's shape changed");
             assertEq(b.cols, s[2], "a block's shape changed");
             assertEq(b.rows, s[3], "a block's shape changed");
-            for (uint256 c = b.col; c < uint256(b.col) + b.cols; c++) {
-                for (uint256 r = b.row; r < uint256(b.row) + b.rows; r++) {
-                    assertEq(handler.ghostCell(c, r), id, "two blocks claim one cell");
-                }
-            }
+            uint256 left = handler._cellsLeft(id);
+            assertEq(b.cellsLeft, left, "a block's cells left are not the model's");
+            assertEq(b.level, handler.ghostLevel(id), "a block's level is not the model's");
+            assertEq(b.boughtAt, handler.ghostBoughtAt(id), "a block's time is not the model's");
+            free -= left;
         }
+        assertEq(board.freeCells(), free, "free cells are not the model's");
     }
 
     function _moneyInEqualsCredits() internal view {
@@ -735,8 +953,9 @@ contract ImageBoardInvariantTest is Test {
         assertEq(handler.violMoneyAcrossResale(), 0, "a resale moved or credited the wrong amount");
         assertEq(
             handler.ghostPaidIn(),
-            handler.ghostSellerCredited() + handler.ghostProtocolCredited() + handler.ghostResaleCredited(),
-            "money in is not seller credit plus protocol cut plus resale credits"
+            handler.ghostSellerCredited() + handler.ghostProtocolCredited() + handler.ghostResaleCredited()
+                + handler.ghostPayoutsCredited(),
+            "money in is not holder credit plus protocol cut plus resale credits plus take payouts"
         );
         assertEq(handler.violPaidTheWrongHolder(), 0, "a sale credited someone other than the board's holder");
         assertEq(handler.violCutModelDisagrees(), 0, "a price cut went through, or was refused, against the model");
@@ -776,7 +995,7 @@ contract ImageBoardInvariantTest is Test {
         console.log("listings / resales ok / stale", handler.ghostListings(), handler.ghostResalesOk(), handler.ghostResalesStale());
         console.log("listings ended by a gift  ", handler.ghostListingsEndedByGift());
         assertGt(handler.ghostBuysOk(), 0, "no buy ever landed");
-        assertGt(handler.ghostBuysTaken(), 0, "no buy ever hit a taken cell - the overlap property was vacuous");
+        assertGt(handler.ghostBuysTaken(), 0, "no buy was ever refused over a sold cell");
         assertGt(handler.ghostBuysOutside(), 0, "no buy ever left the grid");
         assertGt(handler.ghostTransfers(), 0, "no block ever changed hands");
         assertGt(handler.ghostStrangerAttempts(), 0, "no stranger ever tried");
@@ -794,5 +1013,14 @@ contract ImageBoardInvariantTest is Test {
         assertGt(handler.ghostCuts(), 0, "no price was ever lowered");
         assertGt(handler.ghostCutsRefused(), 0, "no cut was ever refused");
         assertGt(handler.ghostBuysAfterACut(), 0, "no buy followed a cut - the scaled price was vacuous");
+        console.log("takes / after a week / cooling / kept", handler.ghostTakesOk(), handler.ghostTakesAfterAWeek(), handler.ghostRefusedCooling());
+        console.log("kept refused / kept taken after a gift", handler.ghostRefusedKept(), handler.ghostKeptTakenAfterGift());
+        console.log("listings ended by a take / listing refused, nothing left", handler.ghostListingsEndedByTake(), handler.ghostListRefusedNothingLeft());
+        assertGt(handler.ghostTakesOk(), 0, "no take ever landed");
+        assertGt(handler.ghostTakesAfterAWeek(), 0, "no take came a week after a buy - reversion was vacuous");
+        assertGt(handler.ghostRefusedCooling(), 0, "no buy was refused for a cooldown");
+        assertGt(handler.ghostRefusedKept(), 0, "no buy was refused over a kept cell");
+        assertGt(handler.ghostKeptTakenAfterGift(), 0, "a given-away kept block was never taken");
+        assertGt(handler.ghostListingsEndedByTake(), 0, "no take ever ended a listing");
     }
 }

@@ -404,11 +404,14 @@ converts; one that renders blank reads as breakage.
 
 A second kind of board, beside the page regions above: a seller uploads one picture, and buyers buy
 rectangular blocks of its square cells and put their own pictures in them. The board is one ERC-721
-token in a shared collection, minted to the seller; a block is a record on the board, owned outright
-— there are no takeovers — and moved only by its owner, as a gift or a resale at a price they set.
-Whoever holds the board's token is paid for each square sold and a share of each resale, and may
-lower the price of unsold squares but never raise it. Squares can be priced by zone at creation, and
-a seller can keep areas for themselves.
+token in a shared collection, minted to the seller; a block is a record on the board, moved by its
+owner as a gift or a resale at a price they set. Any sold square can also be bought from its owner,
+as a page slot can be taken: at its price times the board's take multiple, crediting the owner a
+payout, except a square the creator kept (while they own it) and one still in its cooldown. A take
+is a new block on top; the old one keeps the squares left to it. Whoever holds the board's token is
+paid for each square sold and a share of each resale and take, and may lower the price of unsold
+squares but never raise it. Squares can be priced by zone at creation, and a seller can keep areas
+for themselves. The terms of a take are chosen at creation and never change.
 
 **Testnet only for now** (Robinhood Chain testnet, 46630). The contracts are
 `ImageBoard.sol` and `ImageBoardCollection.sol`, specified in

@@ -277,6 +277,38 @@
                 "internalType": "uint16"
               }
             ]
+          },
+          {
+            "name": "terms",
+            "type": "tuple",
+            "internalType": "struct ImageBoard.Terms",
+            "components": [
+              {
+                "name": "takeBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "payoutBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "reversionBps",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "maxReversionWeeks",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "cooldownSecs",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
           }
         ]
       }

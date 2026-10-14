@@ -33,6 +33,8 @@ const SELLER = '0x0000000000000000000000000000000000005e11' as Address;
 const BUYER = '0x000000000000000000000000000000000000b0b0' as Address;
 const TOKEN = '0x00000000000000000000000000000000000070c0' as Address;
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
+/** The page boards' Standard profile. */
+const STANDARD = { takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 };
 
 /** Encodes and decodes against the ABI, so a builder whose args do not fit the function fails here
  *  rather than as a revert on chain. */
@@ -53,6 +55,7 @@ function createOptions(overrides: Partial<CreateImageBoardOptions> = {}): Create
     imageHash: keccak256(toHex('img')),
     zones: [],
     kept: [],
+    terms: STANDARD,
     ...overrides,
   };
 }
@@ -92,6 +95,26 @@ describe('buildCreateImageBoard', () => {
     expect(() => buildCreateImageBoard(createOptions({ zones: [{ ...zone, cellPrice: (1n << 192n) - 1n }] }))).not.toThrow();
   });
 
+  it('carries the terms through the ABI', () => {
+    const decoded = roundTrip(buildCreateImageBoard(createOptions()));
+    expect(decoded.args?.[1]).toMatchObject({
+      terms: { takeBps: 14_000n, payoutBps: 11_500n, reversionBps: 9_700n, maxReversionWeeks: 52n, cooldownSecs: 3_600n },
+    });
+  });
+
+  it('refuses terms the contract would refuse, at each clamp', () => {
+    const terms = (t: Partial<typeof STANDARD>) => createOptions({ terms: { ...STANDARD, ...t } });
+    // The take must clear the payout plus the protocol's 500.
+    expect(() => buildCreateImageBoard(terms({ takeBps: 12_000 }))).toThrow(/TakeBelowPayout/);
+    expect(() => buildCreateImageBoard(terms({ takeBps: 12_001 }))).not.toThrow();
+    expect(() => buildCreateImageBoard(terms({ payoutBps: 9_999 }))).toThrow(/PayoutBelowPrincipal/);
+    expect(() => buildCreateImageBoard(terms({ takeBps: 30_001 }))).toThrow(/TakeTooHigh/);
+    expect(() => buildCreateImageBoard(terms({ reversionBps: 0 }))).toThrow(/InvalidReversion/);
+    expect(() => buildCreateImageBoard(terms({ maxReversionWeeks: 53 }))).toThrow(/InvalidReversion/);
+    expect(() => buildCreateImageBoard(terms({ cooldownSecs: 604_801 }))).toThrow(/InvalidConfig/);
+    expect(() => buildCreateImageBoard(terms({ cooldownSecs: 1.5 }))).toThrow(/whole number/);
+  });
+
   it('accepts the largest grid', () => {
     expect(() => buildCreateImageBoard(createOptions({ width: 2569, height: 10_009 }))).not.toThrow();
   });
@@ -101,31 +124,37 @@ describe('buying', () => {
   const rect = { col: 4, row: 5, cols: 3, rows: 2 };
   const other = { col: 0, row: 0, cols: 1, rows: 1 };
 
-  it('buyBlocks names the recipient and every rectangle, in order', () => {
-    const decoded = roundTrip(buildBuyBlocks({ board: BOARD, recipient: BUYER, rects: [rect, other] }));
+  const buy = { board: BOARD, recipient: BUYER, maxTotal: 600_000n, deadline: 1_900_000_000n };
+
+  it('buyBlocks names the recipient, every rectangle in order, the most it pays and the deadline', () => {
+    const decoded = roundTrip(buildBuyBlocks({ ...buy, rects: [rect, other] }));
     expect(decoded.functionName).toBe('buyBlocks');
-    expect(decoded.args).toEqual([BUYER, [rect, other]]);
+    expect(decoded.args).toEqual([BUYER, [rect, other], 600_000n, 1_900_000_000n]);
   });
 
-  it('buyBlocksWithPermit carries the signed value and the permit after the rectangles', () => {
+  it('buyBlocksWithPermit carries the most it pays — what the permit signs — and the permit after the rectangles', () => {
     const permit = { deadline: 1_900_000_000n, v: 27, r: `0x${'aa'.repeat(32)}` as Hex, s: `0x${'bb'.repeat(32)}` as Hex };
-    const decoded = roundTrip(buildBuyBlocksWithPermit({ board: BOARD, recipient: BUYER, rects: [rect], permitValue: 600_000n, permit }));
+    const decoded = roundTrip(buildBuyBlocksWithPermit({ board: BOARD, recipient: BUYER, rects: [rect], maxTotal: 600_000n, permit }));
     expect(decoded.functionName).toBe('buyBlocksWithPermit');
     expect(decoded.args).toEqual([BUYER, [rect], 600_000n, 1_900_000_000n, 27, permit.r, permit.s]);
   });
 
+  it('refuses a buy that names no most', () => {
+    expect(() => buildBuyBlocks({ ...buy, rects: [rect], maxTotal: 0n })).toThrow(/most/);
+  });
+
   it('refuses an unnamed recipient — never the sender by default', () => {
-    expect(() => buildBuyBlocks({ board: BOARD, recipient: ZERO, rects: [rect] })).toThrow(/recipient/);
+    expect(() => buildBuyBlocks({ ...buy, recipient: ZERO, rects: [rect] })).toThrow(/recipient/);
   });
 
   it('refuses an empty buy, as the contract would', () => {
-    expect(() => buildBuyBlocks({ board: BOARD, recipient: BUYER, rects: [] })).toThrow(/at least one/);
+    expect(() => buildBuyBlocks({ ...buy, rects: [] })).toThrow(/at least one/);
   });
 
   it('refuses coordinates a uint16 cannot carry, in any rectangle', () => {
-    expect(() => buildBuyBlocks({ board: BOARD, recipient: BUYER, rects: [{ ...rect, col: 65_536 }] })).toThrow(/col/);
-    expect(() => buildBuyBlocks({ board: BOARD, recipient: BUYER, rects: [rect, { ...rect, rows: -1 }] })).toThrow(/rows/);
-    expect(() => buildBuyBlocks({ board: BOARD, recipient: BUYER, rects: [{ ...rect, cols: 1.5 }] })).toThrow(/cols/);
+    expect(() => buildBuyBlocks({ ...buy, rects: [{ ...rect, col: 65_536 }] })).toThrow(/col/);
+    expect(() => buildBuyBlocks({ ...buy, rects: [rect, { ...rect, rows: -1 }] })).toThrow(/rows/);
+    expect(() => buildBuyBlocks({ ...buy, rects: [{ ...rect, cols: 1.5 }] })).toThrow(/cols/);
   });
 });
 

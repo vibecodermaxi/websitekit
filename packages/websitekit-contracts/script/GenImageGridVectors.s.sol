@@ -5,36 +5,36 @@ import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
 import { ImageBoardCollection } from "../src/ImageBoardCollection.sol";
+import { TermsLib } from "../src/TermsLib.sol";
 import { TestUSD } from "../src/mocks/TestUSD.sol";
 
 /// @notice The image-board grid rule as JSONL, for the TypeScript twin to assert against
 /// (`packages/websitekit-sdk/src/image-grid.ts`). Written to `out/image-grid-vectors.jsonl` via `vm.writeLine`.
 ///
-/// Two families, by `kind`:
+/// By `kind`:
 ///
-///   - `grid`  — `(width, height, cellSize)` → `(gridCols, gridRows)` or `InvalidConfig`, read off
-///               a REAL board the collection created (or refused), not recomputed here.
-///   - `rect`  — `(col, row, cols, rows)` → the name of the error `blockError` returns, or `none`,
-///               on one board with three blocks already sold. The sweep runs one cell past the grid
-///               on both axes and includes empty rectangles, so every refusal appears.
-///
+///   - `grid`   — `(width, height, cellSize)` → `(gridCols, gridRows)` or `InvalidConfig`, read off
+///                a REAL board the collection created (or refused), not recomputed here.
 ///   - `layout` — zones and kept blocks → the error `initialize` reverts with, or `none`, from a
-///               real `createBoardFor` on a 12×10 grid (2026-10-11). Every refusal at its boundary.
-///   - `quote`  — after a `zoned` line (a board with zones and kept blocks): `(col, row, cols, rows)`
-///               → `quote`'s total and `blockError`'s answer, for every rectangle of six shapes at
-///               every origin inside the grid. One zone's price is near 2^150, so a twin computing
-///               in floating point fails. Three zoned boards: at full price, and lowered to 3,333
-///               and to 1 bps (2026-10-11) — shares that do not divide the totals, so a twin that
-///               rounded down, or cut each cell rather than the block, fails.
-///   - `multi`  — a list of rectangles → the error `buyBlocks` reverts with, or `none`, from a real
-///               buy on a fresh 12×10 board with one block sold (2026-10-11): rectangles that share
-///               a cell with each other, with the sold block, leave the grid, or are empty, and the
-///               empty list. The first failing rectangle names the error.
+///                real `createBoardFor` on a 12×10 grid (2026-10-11). Every refusal at its boundary.
+///   - `terms`  — a board's five take terms → the error `initialize` reverts with (TermsLib's), or
+///                `none`, at every clamp and one past it (2026-10-14).
+///   - `state`  — everything the twin prices a buy against, READ off a real board at one moment:
+///                the grid, prices, zones, terms, creator, kept count, the chain's clock, every
+///                non-zero row of `cellRow`, and each block's owner, level and `boughtAt`. The lines
+///                after it are against that state.
+///   - `rect`   — `(col, row, cols, rows)` → `blockError`'s answer and `quote`'s total (zero when
+///                refused), for every rectangle of nine shapes at every origin.
+///   - `multi`  — a list of rectangles → `buyError`'s answer and `quoteBlocks`' total, each also
+///                bought for real on a snapshot, asserting the buy reverts with the same error or
+///                pulls exactly that total.
 ///
-/// Each `board` line carries the grid and the sold blocks, and the `rect` lines after it are against
-/// that board, so the twin rebuilds the occupancy rather than trusting a copy of it. There are two
-/// boards: the 12×10 sweep, and one 256 cells wide — the only width where a whole row is every bit
-/// of the storage word, which a narrow sweep never reaches.
+/// Since takeovers (2026-10-14) the states come from a "market" board built by real buys at real
+/// times — blocks taken in part, taken twice, one in its cooldown, a kept block owned and one given
+/// away, zones (one priced near 2^150, so a twin computing in floating point fails), reversion
+/// partway and past its last week, free squares cut to 3,333 bps — and a board 256 × 600 with 130
+/// one-cell blocks and one wide block in a row, for the word and block caps at their boundaries; and
+/// a board whose reversion stops after two weeks, swept week by week past it.
 ///
 /// No RNG: re-running emits the same file.
 contract GenImageGridVectors is Script {
@@ -42,6 +42,11 @@ contract GenImageGridVectors is Script {
     /// Fixed parties: a script contract's own address is ephemeral, and forge refuses it.
     address internal constant SELLER = address(0x5E11);
     address internal constant BUYER = address(0xB0B);
+    address internal constant B1 = address(0xB1);
+    address internal constant B2 = address(0xB2);
+    address internal constant B3 = address(0xB3);
+    uint256 internal constant HOUR = 3_600;
+    uint256 internal constant T0 = 1_800_000_000;
 
     TestUSD internal usd;
     ImageBoardCollection internal collection;
@@ -49,21 +54,25 @@ contract GenImageGridVectors is Script {
 
     function run() external {
         vm.writeFile(OUT_PATH, "");
-        usd = new TestUSD("Vector Dollar", "vUSD", 6);
+        vm.warp(T0);
+        // 60 decimals, so one mint covers buying cells in the zone priced near 2^150.
+        usd = new TestUSD("Vector Dollar", "vUSD", 60);
         ImageBoard implementation = new ImageBoard(500, address(0xBEEF));
         address[] memory tokens = new address[](1);
         tokens[0] = address(usd);
         collection = new ImageBoardCollection("Vector Image Boards", "VIMG", SELLER, address(implementation), tokens, "");
 
         _emitGrids();
-        _emitRects();
-        _emitWideRects();
         _emitLayouts();
-        _emitZonedQuotes(10_000);
-        _emitZonedQuotes(3_333);
-        _emitZonedQuotes(1);
-        _emitMultiBuys();
+        _emitTerms();
+        _emitMarket();
+        _emitShortReversion();
+        _emitCaps();
         console2.log("GenImageGridVectors: lines", lines);
+    }
+
+    function _standard() internal pure returns (ImageBoard.Terms memory) {
+        return ImageBoard.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 });
     }
 
     function _config(uint32 w, uint32 h, uint8 cell) internal view returns (ImageBoard.Config memory cfg) {
@@ -73,6 +82,7 @@ contract GenImageGridVectors is Script {
         cfg.cellSize = cell;
         cfg.cellPrice = 1;
         cfg.imageHash = keccak256("v");
+        cfg.terms = _standard();
     }
 
     function _emitGrids() internal {
@@ -118,114 +128,6 @@ contract GenImageGridVectors is Script {
                 require(bytes4(reason) == ImageBoard.InvalidConfig.selector, "unexpected refusal");
                 _write(string.concat(head, ',"error":"InvalidConfig"}'));
             }
-        }
-    }
-
-    function _emitRects() internal {
-        // 125×104 at 10 px → 12×10, with a strip unsold on both axes.
-        (address created,) = collection.createBoardFor(SELLER, _config(125, 104, 10));
-        ImageBoard board = ImageBoard(created);
-        usd.mint(BUYER, 1e12);
-        vm.prank(BUYER);
-        usd.approve(address(board), type(uint256).max);
-
-        uint16[4][3] memory sold = [[uint16(2), 2, 3, 2], [uint16(8), 0, 4, 1], [uint16(0), 9, 1, 1]];
-        string memory soldJson = "[";
-        for (uint256 i = 0; i < sold.length; i++) {
-            vm.prank(BUYER);
-            board.buyBlocks(BUYER, _list(_rect(sold[i][0], sold[i][1], sold[i][2], sold[i][3])));
-            soldJson = string.concat(
-                soldJson,
-                i == 0 ? "[" : ",[",
-                vm.toString(sold[i][0]),
-                ",",
-                vm.toString(sold[i][1]),
-                ",",
-                vm.toString(sold[i][2]),
-                ",",
-                vm.toString(sold[i][3]),
-                "]"
-            );
-        }
-        (uint16 gc, uint16 gr) = board.gridSize();
-        _write(
-            string.concat(
-                '{"kind":"board","gridCols":', vm.toString(gc), ',"gridRows":', vm.toString(gr), ',"sold":', soldJson, "]}"
-            )
-        );
-
-        uint16[2][8] memory sizes = [
-            [uint16(1), 1],
-            [uint16(2), 2],
-            [uint16(3), 1],
-            [uint16(1), 3],
-            [uint16(12), 1],
-            [uint16(1), 10],
-            [uint16(0), 1],
-            [uint16(1), 0]
-        ];
-        for (uint16 col = 0; col <= gc; col++) {
-            for (uint16 row = 0; row <= gr; row++) {
-                for (uint256 s = 0; s < sizes.length; s++) {
-                    bytes4 err = board.blockError(col, row, sizes[s][0], sizes[s][1]);
-                    _write(
-                        string.concat(
-                            '{"kind":"rect","col":',
-                            vm.toString(col),
-                            ',"row":',
-                            vm.toString(row),
-                            ',"cols":',
-                            vm.toString(sizes[s][0]),
-                            ',"rows":',
-                            vm.toString(sizes[s][1]),
-                            ',"error":"',
-                            _errorName(err),
-                            '"}'
-                        )
-                    );
-                }
-            }
-        }
-    }
-
-    function _emitWideRects() internal {
-        // 2560×30 at 10 px → 256×3, with row 1 sold whole.
-        (address created,) = collection.createBoardFor(SELLER, _config(2560, 30, 10));
-        ImageBoard board = ImageBoard(created);
-        vm.prank(BUYER);
-        usd.approve(address(board), type(uint256).max);
-        vm.prank(BUYER);
-        board.buyBlocks(BUYER, _list(_rect(0, 1, 256, 1)));
-        _write('{"kind":"board","gridCols":256,"gridRows":3,"sold":[[0,1,256,1]]}');
-
-        uint16[4][9] memory rects = [
-            [uint16(0), 0, 256, 1], // a whole free row
-            [uint16(0), 2, 256, 1],
-            [uint16(0), 1, 1, 1], // the sold row's first cell
-            [uint16(255), 1, 1, 1], // and its last
-            [uint16(255), 0, 1, 1], // the last column, free
-            [uint16(0), 0, 256, 3], // the whole grid, through the sold row
-            [uint16(1), 0, 256, 1], // one past the right edge
-            [uint16(255), 0, 2, 1],
-            [uint16(256), 0, 1, 1]
-        ];
-        for (uint256 i = 0; i < rects.length; i++) {
-            bytes4 err = board.blockError(rects[i][0], rects[i][1], rects[i][2], rects[i][3]);
-            _write(
-                string.concat(
-                    '{"kind":"rect","col":',
-                    vm.toString(rects[i][0]),
-                    ',"row":',
-                    vm.toString(rects[i][1]),
-                    ',"cols":',
-                    vm.toString(rects[i][2]),
-                    ',"rows":',
-                    vm.toString(rects[i][3]),
-                    ',"error":"',
-                    _errorName(err),
-                    '"}'
-                )
-            );
         }
     }
 
@@ -355,7 +257,85 @@ contract GenImageGridVectors is Script {
         _layoutCase(z, k);
     }
 
-    function _emitZonedQuotes(uint256 priceBps) internal {
+    // -----------------------------------------------------------------
+    // Terms
+    // -----------------------------------------------------------------
+
+    function _termsCase(uint256 take, uint256 payout, uint256 reversion, uint256 weeks_, uint256 cooldown) internal {
+        ImageBoard.Config memory cfg = _config(125, 104, 10);
+        cfg.terms = ImageBoard.Terms(take, payout, reversion, weeks_, cooldown);
+        string memory err = "none";
+        try collection.createBoardFor(SELLER, cfg) { }
+        catch (bytes memory reason) {
+            err = _termsErrorName(bytes4(reason));
+        }
+        _write(
+            string.concat(
+                '{"kind":"terms","takeBps":',
+                vm.toString(take),
+                ',"payoutBps":',
+                vm.toString(payout),
+                ',"reversionBps":',
+                vm.toString(reversion),
+                ',"maxReversionWeeks":',
+                vm.toString(weeks_),
+                ',"cooldownSecs":',
+                vm.toString(cooldown),
+                ',"error":"',
+                err,
+                '"}'
+            )
+        );
+    }
+
+    /// Each clamp of `TermsLib.checkEconomicsAbsolute`, at it and one past it, with a protocol cut of 500.
+    function _emitTerms() internal {
+        _termsCase(14_000, 11_500, 9_700, 52, 3_600); // Standard
+        _termsCase(20_000, 16_000, 9_900, 52, 86_400); // Collector
+        _termsCase(13_000, 11_000, 9_000, 12, 900); // Rotating
+        _termsCase(12_000, 11_500, 9_700, 52, 3_600); // take = payout + cut
+        _termsCase(12_001, 11_500, 9_700, 52, 3_600);
+        _termsCase(40_000, 9_999, 9_700, 52, 3_600); // payout under the floor, checked first
+        _termsCase(10_501, 10_000, 9_700, 52, 3_600); // payout exactly the floor
+        _termsCase(30_000, 29_499, 9_700, 52, 3_600); // the most take
+        _termsCase(30_001, 11_500, 9_700, 52, 3_600);
+        _termsCase(30_000, 29_500, 9_700, 52, 3_600);
+        _termsCase(14_000, 11_500, 0, 52, 3_600); // no reversion step
+        _termsCase(14_000, 11_500, 1, 52, 3_600);
+        _termsCase(14_000, 11_500, 10_000, 52, 3_600); // reversion that never moves
+        _termsCase(14_000, 11_500, 10_001, 52, 3_600);
+        _termsCase(14_000, 11_500, 9_700, 0, 3_600);
+        _termsCase(14_000, 11_500, 9_700, 53, 3_600);
+        _termsCase(14_000, 11_500, 9_700, 52, 0);
+        _termsCase(14_000, 11_500, 9_700, 52, 604_800);
+        _termsCase(14_000, 11_500, 9_700, 52, 604_801);
+    }
+
+    function _termsErrorName(bytes4 err) internal pure returns (string memory) {
+        if (err == TermsLib.PayoutBelowPrincipal.selector) return "PayoutBelowPrincipal";
+        if (err == TermsLib.TakeTooHigh.selector) return "TakeTooHigh";
+        if (err == TermsLib.TakeBelowPayout.selector) return "TakeBelowPayout";
+        if (err == TermsLib.InvalidReversion.selector) return "InvalidReversion";
+        if (err == TermsLib.InvalidConfig.selector) return "InvalidConfig";
+        revert("unknown terms error");
+    }
+
+    // -----------------------------------------------------------------
+    // The market board: takes at real times
+    // -----------------------------------------------------------------
+
+    function _fund(ImageBoard board, address who) internal {
+        usd.mint(who, 1e65);
+        vm.prank(who);
+        usd.approve(address(board), type(uint256).max);
+    }
+
+    function _buy(ImageBoard board, address who, uint16 c, uint16 r, uint16 w, uint16 h) internal {
+        vm.prank(who);
+        board.buyBlocks(who, _list(_rect(c, r, w, h)), type(uint256).max, block.timestamp);
+    }
+
+    function _emitMarket() internal {
         ImageBoard.Config memory cfg = _config(125, 104, 10);
         cfg.cellPrice = 7;
         cfg.zones = new ImageBoard.Zone[](3);
@@ -363,53 +343,289 @@ contract GenImageGridVectors is Script {
         cfg.zones[1] = _zone(6, 4, 3, 5, 3);
         cfg.zones[2] = _zone(9, 7, 3, 3, uint192(2 ** 150 + 1));
         cfg.kept = new ImageBoard.Rect[](2);
-        cfg.kept[0] = _rect(10, 8, 2, 2);
-        cfg.kept[1] = _rect(4, 0, 2, 1);
+        cfg.kept[0] = _rect(10, 8, 2, 2); // stays the creator's
+        cfg.kept[1] = _rect(4, 0, 2, 1); // given away below
         (address created,) = collection.createBoardFor(SELLER, cfg);
         ImageBoard board = ImageBoard(created);
-        if (priceBps < 10_000) {
-            vm.prank(SELLER);
-            board.lowerPrices(priceBps);
-        }
-        _write(
-            string.concat(
-                '{"kind":"zoned","gridCols":12,"gridRows":10,"cellPrice":"7","priceBps":',
-                vm.toString(priceBps),
-                ',"zones":',
-                _zonesJson(cfg.zones),
-                ',"kept":',
-                _keptJson(cfg.kept),
-                "}"
-            )
-        );
+        _fund(board, B1);
+        _fund(board, B2);
+        _fund(board, B3);
 
-        uint16[2][6] memory sizes = [[uint16(1), 1], [uint16(2), 2], [uint16(3), 2], [uint16(5), 1], [uint16(1), 4], [uint16(4), 4]];
-        for (uint16 col = 0; col < 12; col++) {
-            for (uint16 row = 0; row < 10; row++) {
-                for (uint256 s = 0; s < sizes.length; s++) {
-                    uint16 w = sizes[s][0];
-                    uint16 h = sizes[s][1];
-                    if (col + w > 12 || row + h > 10) continue;
-                    _write(
-                        string.concat(
-                            '{"kind":"quote","col":',
-                            vm.toString(col),
-                            ',"row":',
-                            vm.toString(row),
-                            ',"cols":',
-                            vm.toString(w),
-                            ',"rows":',
-                            vm.toString(h),
-                            ',"total":"',
-                            vm.toString(board.quote(col, row, w, h)),
-                            '","error":"',
-                            _errorName(board.blockError(col, row, w, h)),
-                            '"}'
-                        )
-                    );
+        // A kept block is in its cooldown from creation, and kept is what refuses first.
+        _emitState(board);
+        _emitRect(board, _rect(10, 8, 1, 1));
+        _emitRect(board, _rect(4, 0, 2, 1));
+        _emitRect(board, _rect(3, 0, 3, 1));
+
+        uint256 t0 = block.timestamp;
+        _buy(board, B1, 0, 4, 3, 3); // 3: P
+        _buy(board, B2, 8, 0, 4, 1); // 4: Q
+        _buy(board, B3, 9, 6, 2, 2); // 5: in the 2^150 zone
+        vm.warp(t0 + HOUR);
+        _buy(board, B3, 1, 5, 3, 1); // 6: R, over P and free cells
+        _buy(board, B1, 6, 4, 3, 3); // 7: S, in a zone
+        vm.warp(t0 + 3 weeks);
+        _buy(board, B1, 2, 5, 1, 2); // 8: W, over R and P: a block taken twice
+        _buy(board, B2, 7, 5, 2, 2); // 9: U, over S
+        _buy(board, B3, 0, 9, 1, 1); // 10: V
+        _buy(board, B2, 10, 6, 1, 1); // 11: over the 2^150 block
+        vm.prank(SELLER);
+        board.transferBlock(2, B1); // the second kept block, given away
+
+        // Some blocks still cooling.
+        vm.warp(t0 + 3 weeks + 30 minutes);
+        _sweep(board, true);
+        _emitMarketMultis(board);
+        // Nothing cooling; reversion four weeks into R's level.
+        vm.warp(t0 + 4 weeks + HOUR);
+        _sweep(board, false);
+        // Free squares cut, a block bought at the cut (its level under 10,000), and every block past
+        // its last week of reversion.
+        vm.prank(SELLER);
+        board.lowerPrices(3_333);
+        _buy(board, B3, 3, 8, 2, 1); // 12
+        vm.warp(t0 + 60 weeks);
+        _sweep(board, false);
+    }
+
+    /// Every rectangle of the shapes below at every origin — one past the grid too when `edges`.
+    function _sweep(ImageBoard board, bool edges) internal {
+        _emitState(board);
+        uint16[2][9] memory sizes =
+            [[uint16(1), 1], [uint16(2), 2], [uint16(3), 2], [uint16(5), 1], [uint16(1), 4], [uint16(4), 4], [uint16(12), 10], [uint16(0), 1], [uint16(1), 0]];
+        (uint16 gc, uint16 gr) = board.gridSize();
+        for (uint16 col = 0; col <= gc; col++) {
+            for (uint16 row = 0; row <= gr; row++) {
+                for (uint256 i = 0; i < sizes.length; i++) {
+                    uint16 w = sizes[i][0];
+                    uint16 h = sizes[i][1];
+                    if (!edges && (col + w > gc || row + h > gr || w == 0 || h == 0)) continue;
+                    _emitRect(board, _rect(col, row, w, h));
                 }
             }
         }
+    }
+
+    function _emitRect(ImageBoard board, ImageBoard.Rect memory k) internal {
+        bytes4 err = board.blockError(k.col, k.row, k.cols, k.rows);
+        uint256 total = err == bytes4(0) ? board.quote(k.col, k.row, k.cols, k.rows) : 0;
+        _write(
+            string.concat(
+                '{"kind":"rect","col":',
+                vm.toString(k.col),
+                ',"row":',
+                vm.toString(k.row),
+                ',"cols":',
+                vm.toString(k.cols),
+                ',"rows":',
+                vm.toString(k.rows),
+                ',"error":"',
+                _errorName(err),
+                '","total":"',
+                vm.toString(total),
+                '"}'
+            )
+        );
+    }
+
+    function _emitMarketMultis(ImageBoard board) internal {
+        _multiCase(board, new ImageBoard.Rect[](0)); // nothing to buy
+        _multiCase(board, _list(_rect(0, 0, 1, 1))); // one free
+        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(0, 4, 2, 3))); // free, and a take over two blocks
+        _multiCase(board, _list(_rect(0, 0, 2, 2), _rect(2, 0, 2, 2))); // touching
+        _multiCase(board, _list(_rect(0, 0, 2, 2), _rect(1, 1, 2, 2))); // sharing a cell with each other
+        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(0, 0, 1, 1))); // the same rectangle twice
+        _multiCase(board, _list(_rect(0, 4, 1, 1), _rect(1, 4, 1, 1))); // the same block from two rectangles
+        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(7, 5, 1, 1))); // the second on a cooling block
+        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(10, 8, 1, 1))); // the second on a kept block
+        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(4, 0, 2, 1))); // the second on a kept block given away
+        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(11, 9, 2, 1))); // the second leaves the grid
+        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(5, 5, 0, 1))); // the second empty
+        _multiCase(board, _list(_rect(7, 5, 1, 1), _rect(20, 0, 1, 1))); // both bad: the first names it
+        _multiCase(board, _list(_rect(20, 0, 1, 1), _rect(7, 5, 1, 1))); // and the other way round
+    }
+
+    /// The view's answer, then the same list bought for real on a snapshot: the buy must revert with
+    /// that error, or pull exactly that total.
+    function _multiCase(ImageBoard board, ImageBoard.Rect[] memory rects) internal {
+        bytes4 err = board.buyError(rects);
+        uint256 total = err == bytes4(0) ? board.quoteBlocks(rects) : 0;
+        uint256 snap = vm.snapshotState();
+        uint256 before = usd.balanceOf(B1);
+        vm.prank(B1);
+        try board.buyBlocks(B1, rects, type(uint256).max, block.timestamp) {
+            require(err == bytes4(0), "the view refused what the buy took");
+            require(before - usd.balanceOf(B1) == total, "the buy pulled other than the quote");
+        } catch (bytes memory reason) {
+            require(bytes4(reason) == err, "the buy refused with another error");
+        }
+        vm.revertToState(snap);
+        _write(string.concat('{"kind":"multi","rects":', _keptJson(rects), ',"error":"', _errorName(err), '","total":"', vm.toString(total), '"}'));
+    }
+
+    /// Terms whose reversion stops after two weeks: past them a taken block's floor holds, which a
+    /// board reverting for 52 weeks never shows (its floors reach the creation price first).
+    function _emitShortReversion() internal {
+        ImageBoard.Config memory cfg = _config(125, 104, 10);
+        cfg.cellPrice = 1_000_003;
+        cfg.terms = ImageBoard.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_900, maxReversionWeeks: 2, cooldownSecs: 3_600 });
+        (address created,) = collection.createBoardFor(SELLER, cfg);
+        ImageBoard board = ImageBoard(created);
+        _fund(board, B1);
+        _fund(board, B2);
+        _buy(board, B1, 0, 0, 2, 2);
+        vm.warp(block.timestamp + HOUR);
+        _buy(board, B2, 0, 0, 1, 2); // level 14,000
+        uint256 bought = block.timestamp;
+        for (uint256 w = 0; w <= 4; w++) {
+            vm.warp(bought + w * 1 weeks + HOUR);
+            _emitState(board);
+            _emitRect(board, _rect(0, 0, 1, 1));
+            _emitRect(board, _rect(0, 0, 2, 2));
+            _emitRect(board, _rect(0, 0, 3, 3));
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // The caps
+    // -----------------------------------------------------------------
+
+    function _emitCaps() internal {
+        // 2560 × 6000 at 10 px → 256 × 600.
+        (address created,) = collection.createBoardFor(SELLER, _config(2560, 6000, 10));
+        ImageBoard board = ImageBoard(created);
+        _fund(board, B1);
+        ImageBoard.Rect[] memory ones = new ImageBoard.Rect[](130);
+        for (uint16 i = 0; i < 130; i++) {
+            ones[i] = _rect(i, 20, 1, 1);
+        }
+        vm.prank(B1);
+        board.buyBlocks(B1, ones, type(uint256).max, block.timestamp);
+        vm.prank(B1);
+        board.buyBlocks(B1, _list(_rect(130, 20, 126, 1)), type(uint256).max, block.timestamp); // one wide block
+        vm.warp(block.timestamp + HOUR);
+        _emitState(board);
+
+        _emitRect(board, _rect(0, 20, 128, 1)); // 128 blocks
+        _emitRect(board, _rect(0, 20, 129, 1)); // 129
+        _emitRect(board, _rect(0, 20, 256, 2)); // 131, among free cells
+        _emitRect(board, _rect(0, 19, 128, 3)); // 128, among free cells
+        _emitRect(board, _rect(0, 0, 256, 16)); // 512 words
+        _emitRect(board, _rect(0, 0, 256, 17)); // 544
+        _emitRect(board, _rect(0, 0, 1, 512)); // a column of 512
+        _emitRect(board, _rect(0, 0, 1, 513));
+        _emitRect(board, _rect(4, 0, 8, 256)); // straddling two words a row: 512
+        _emitRect(board, _rect(4, 0, 8, 257));
+        _emitRect(board, _rect(8, 0, 8, 512)); // aligned: one word a row
+        _emitRect(board, _rect(8, 0, 8, 513));
+
+        _multiCase(board, _list(_rect(0, 20, 64, 1), _rect(64, 20, 64, 1))); // 128 across two
+        _multiCase(board, _list(_rect(0, 20, 64, 1), _rect(64, 20, 65, 1))); // 129 across two
+        _multiCase(board, _list(_rect(0, 0, 256, 8), _rect(0, 8, 256, 8))); // 512 words across two
+        _multiCase(board, _list(_rect(0, 0, 256, 8), _rect(0, 8, 256, 9))); // 544
+        // The word cap is checked before the second rectangle's blocks are counted.
+        _multiCase(board, _list(_rect(0, 30, 256, 16), _rect(0, 20, 1, 1)));
+        // And after its overlap with the first.
+        _multiCase(board, _list(_rect(0, 30, 256, 16), _rect(0, 30, 1, 1)));
+        // Blocks are counted across every rectangle: 43 + 43 + 43, and 43 + 43 + 42.
+        _multiCase(board, _list3(_rect(0, 20, 43, 1), _rect(43, 20, 43, 1), _rect(86, 20, 43, 1)));
+        _multiCase(board, _list3(_rect(0, 20, 43, 1), _rect(43, 20, 43, 1), _rect(86, 20, 42, 1)));
+        // ... once in each rectangle that meets them: the wide block in two is two of 129.
+        _multiCase(board, _list3(_rect(66, 20, 65, 1), _rect(131, 20, 1, 1), _rect(0, 20, 63, 1)));
+        _multiCase(board, _list3(_rect(66, 20, 65, 1), _rect(131, 20, 1, 1), _rect(0, 20, 62, 1)));
+    }
+
+    // -----------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------
+
+    /// What the twin needs, read off the board now: never what the script meant to build.
+    function _emitState(ImageBoard board) internal {
+        (uint16 gc, uint16 gr) = board.gridSize();
+        string memory head = string.concat(
+            '{"kind":"state","gridCols":',
+            vm.toString(gc),
+            ',"gridRows":',
+            vm.toString(gr),
+            ',"cellPrice":"',
+            vm.toString(board.cellPrice()),
+            '","priceBps":',
+            vm.toString(board.priceBps()),
+            ',"zones":',
+            _zonesJson(board.zones()),
+            ',"terms":',
+            _termsJson(board),
+            ',"creator":"',
+            vm.toString(board.creator()),
+            '","keptCount":',
+            vm.toString(board.keptCount()),
+            ',"now":"',
+            vm.toString(block.timestamp),
+            '"'
+        );
+        _write(string.concat(head, ',"rows":', _rowsJson(board, gr), ',"blocks":', _blocksJson(board), "}"));
+    }
+
+    function _termsJson(ImageBoard board) internal view returns (string memory) {
+        return string.concat(
+            '{"takeBps":',
+            vm.toString(board.takeBps()),
+            ',"payoutBps":',
+            vm.toString(board.payoutBps()),
+            ',"reversionBps":',
+            vm.toString(board.reversionBps()),
+            ',"maxReversionWeeks":',
+            vm.toString(board.maxReversionWeeks()),
+            ',"cooldownSecs":',
+            vm.toString(board.cooldownSecs()),
+            "}"
+        );
+    }
+
+    /// `[[row, ["word", …]], …]` for every row with a cell held; the rest are all zero.
+    function _rowsJson(ImageBoard board, uint16 gr) internal view returns (string memory out) {
+        out = "[";
+        bool first = true;
+        for (uint256 r = 0; r < gr; r++) {
+            uint256[] memory words = board.cellRow(r);
+            bool any;
+            string memory ws = "[";
+            for (uint256 i = 0; i < words.length; i++) {
+                if (words[i] != 0) any = true;
+                ws = string.concat(ws, i == 0 ? '"' : ',"', vm.toString(words[i]), '"');
+            }
+            if (!any) continue;
+            out = string.concat(out, first ? "[" : ",[", vm.toString(r), ",", ws, "]]");
+            first = false;
+        }
+        out = string.concat(out, "]");
+    }
+
+    /// `[[id, "owner", "level", "boughtAt", col, row, cols, rows], …]` for every block.
+    function _blocksJson(ImageBoard board) internal view returns (string memory out) {
+        out = "[";
+        uint256 n = board.blockCount();
+        for (uint256 id = 1; id <= n; id++) {
+            ImageBoard.Block memory b = board.blockOf(id);
+            out = string.concat(
+                out,
+                id == 1 ? "[" : ",[",
+                vm.toString(id),
+                ',"',
+                vm.toString(board.ownerOf(id)),
+                '","',
+                vm.toString(uint256(b.level)),
+                '","',
+                vm.toString(uint256(b.boughtAt)),
+                '",',
+                _rectJson(b)
+            );
+        }
+        out = string.concat(out, "]");
+    }
+
+    function _rectJson(ImageBoard.Block memory b) internal pure returns (string memory) {
+        return string.concat(vm.toString(b.col), ",", vm.toString(b.row), ",", vm.toString(b.cols), ",", vm.toString(b.rows), "]");
     }
 
     function _list(ImageBoard.Rect memory a) internal pure returns (ImageBoard.Rect[] memory l) {
@@ -423,36 +639,15 @@ contract GenImageGridVectors is Script {
         l[1] = b;
     }
 
-    /// Each case on a fresh board, so a buy that lands cannot change the next case's answer.
-    function _multiCase(ImageBoard.Rect[] memory rects) internal {
-        (address created,) = collection.createBoardFor(SELLER, _config(125, 104, 10));
-        ImageBoard board = ImageBoard(created);
-        vm.prank(BUYER);
-        usd.approve(address(board), type(uint256).max);
-        vm.prank(BUYER);
-        board.buyBlocks(BUYER, _list(_rect(2, 2, 3, 2)));
-        string memory err = "none";
-        vm.prank(BUYER);
-        try board.buyBlocks(BUYER, rects) { }
-        catch (bytes memory reason) {
-            err = _errorName(bytes4(reason));
-        }
-        _write(string.concat('{"kind":"multi","rects":', _keptJson(rects), ',"error":"', err, '"}'));
-    }
-
-    function _emitMultiBuys() internal {
-        _write('{"kind":"multiBoard","gridCols":12,"gridRows":10,"sold":[[2,2,3,2]]}');
-        _multiCase(new ImageBoard.Rect[](0)); // nothing to buy
-        _multiCase(_list(_rect(0, 0, 1, 1))); // one
-        _multiCase(_list(_rect(0, 0, 1, 1), _rect(6, 6, 2, 2))); // apart
-        _multiCase(_list(_rect(0, 0, 2, 2), _rect(2, 0, 2, 2))); // touching
-        _multiCase(_list(_rect(0, 0, 2, 2), _rect(1, 1, 2, 2))); // sharing a cell with each other
-        _multiCase(_list(_rect(0, 0, 1, 1), _rect(0, 0, 1, 1))); // the same rectangle twice
-        _multiCase(_list(_rect(0, 0, 1, 1), _rect(4, 3, 1, 1))); // the second on the sold block
-        _multiCase(_list(_rect(0, 0, 1, 1), _rect(11, 9, 2, 1))); // the second leaves the grid
-        _multiCase(_list(_rect(0, 0, 1, 1), _rect(5, 5, 0, 1))); // the second empty
-        _multiCase(_list(_rect(4, 3, 1, 1), _rect(20, 0, 1, 1))); // both bad: the first names it
-        _multiCase(_list(_rect(20, 0, 1, 1), _rect(4, 3, 1, 1))); // and the other way round
+    function _list3(ImageBoard.Rect memory a, ImageBoard.Rect memory b, ImageBoard.Rect memory c)
+        internal
+        pure
+        returns (ImageBoard.Rect[] memory l)
+    {
+        l = new ImageBoard.Rect[](3);
+        l[0] = a;
+        l[1] = b;
+        l[2] = c;
     }
 
     function _errorName(bytes4 err) internal pure returns (string memory) {
@@ -460,7 +655,11 @@ contract GenImageGridVectors is Script {
         if (err == ImageBoard.EmptyBlock.selector) return "EmptyBlock";
         if (err == ImageBoard.OutsideGrid.selector) return "OutsideGrid";
         if (err == ImageBoard.CellsTaken.selector) return "CellsTaken";
-        revert("unknown blockError");
+        if (err == ImageBoard.CellsKept.selector) return "CellsKept";
+        if (err == ImageBoard.CoolingDown.selector) return "CoolingDown";
+        if (err == ImageBoard.TooLarge.selector) return "TooLarge";
+        if (err == ImageBoard.TooManyBlocks.selector) return "TooManyBlocks";
+        revert("unknown buy error");
     }
 
     function _write(string memory line) internal {

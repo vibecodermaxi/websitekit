@@ -55,6 +55,13 @@ abstract contract ImageBoardBase is Test {
         cfg.cellSize = cell;
         cfg.cellPrice = CELL_PRICE;
         cfg.imageHash = keccak256("original image bytes");
+        cfg.terms = _standardTerms();
+    }
+
+    /// The page boards' *Standard* profile: takes at 1.4× the floor, 1.15× of it to the displaced
+    /// owner, reverting 3% a week over at most 52, an hour's cooldown.
+    function _standardTerms() internal pure returns (ImageBoard.Terms memory) {
+        return ImageBoard.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 });
     }
 
     function _create(ImageBoard.Config memory cfg) internal returns (ImageBoard) {
@@ -67,7 +74,7 @@ abstract contract ImageBoardBase is Test {
         returns (uint256 id)
     {
         vm.prank(payer);
-        id = board.buyBlocks(recipient, _one(col, row, cols, rows));
+        id = board.buyBlocks(recipient, _one(col, row, cols, rows), type(uint256).max, block.timestamp);
     }
 
     /// One rectangle, as the list `buyBlocks` takes.

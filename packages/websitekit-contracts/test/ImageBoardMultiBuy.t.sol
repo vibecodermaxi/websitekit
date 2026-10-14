@@ -33,7 +33,7 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
 
     function _buyAll(address payer, address recipient, ImageBoard.Rect[] memory rects) internal returns (uint256 firstId) {
         vm.prank(payer);
-        firstId = board.buyBlocks(recipient, rects);
+        firstId = board.buyBlocks(recipient, rects, type(uint256).max, block.timestamp);
     }
 
     /// Everything a refused buy could have touched, so "nothing happened" is measured, not assumed.
@@ -51,7 +51,7 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
         bytes32 before = _snapshot();
         vm.prank(alice);
         vm.expectRevert(err);
-        board.buyBlocks(alice, rects);
+        board.buyBlocks(alice, rects, type(uint256).max, block.timestamp);
         assertEq(_snapshot(), before, "a refused buy changed something");
     }
 
@@ -84,9 +84,9 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
     // All or nothing
     // ---------------------------------------------------------------------
 
-    function test_oneTakenCellRefusesTheWholeBuy() public {
+    function test_oneCellInItsCooldownRefusesTheWholeBuy() public {
         _buy(bob, bob, 10, 10, 1, 1);
-        _refused(_two([uint16(0), 0, 2, 2], [uint16(9), 9, 2, 2]), ImageBoard.CellsTaken.selector);
+        _refused(_two([uint16(0), 0, 2, 2], [uint16(9), 9, 2, 2]), ImageBoard.CoolingDown.selector);
     }
 
     function test_rectanglesSharingOneCellAreRefused() public {
@@ -105,7 +105,7 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
     /// The first failing rectangle names the error, in the order given.
     function test_theFirstBadRectangleNamesTheError() public {
         _buy(bob, bob, 10, 10, 1, 1);
-        _refused(_two([uint16(10), 10, 1, 1], [uint16(30), 0, 1, 1]), ImageBoard.CellsTaken.selector);
+        _refused(_two([uint16(10), 10, 1, 1], [uint16(30), 0, 1, 1]), ImageBoard.CoolingDown.selector);
         _refused(_two([uint16(30), 0, 1, 1], [uint16(10), 10, 1, 1]), ImageBoard.OutsideGrid.selector);
     }
 
@@ -117,7 +117,7 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
         ImageBoard.Rect[] memory rects = _two([uint16(0), 0, 1, 1], [uint16(2), 0, 1, 1]);
         vm.prank(alice);
         vm.expectRevert(ImageBoard.ZeroAddress.selector);
-        board.buyBlocks(address(0), rects);
+        board.buyBlocks(address(0), rects, type(uint256).max, block.timestamp);
     }
 
     // ---------------------------------------------------------------------

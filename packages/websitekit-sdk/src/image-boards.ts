@@ -17,14 +17,19 @@
  * batches them by itself.
  *
  * Geometry and prices are in `./image-grid` (re-exported here), a twin of the contract pinned by
- * vectors generated from it. The buy gate is the CONTRACT's `blockError`, read fresh by
- * `readBlockError`; the twin is what a screen previews.
+ * vectors generated from it. The buy gate is the CONTRACT's `buyError`, read fresh by
+ * `readBuyError`, and a buy is priced by its `quoteBlocks` (`readQuoteBlocks`); the twin is what a
+ * screen previews.
+ *
+ * **Any cell can be bought** (2026-10-14): a buy over sold cells takes them, paying their owners.
+ * The twin needs the board's cell map (`readCellMap`) and its blocks to price that; `gridStateOf`
+ * puts them together.
  */
 import { toFunctionSelector, type Abi, type Address, type Hex, type PublicClient } from 'viem';
 
 import imageBoardAbiJson from './abi/ImageBoard.json';
 import imageBoardCollectionAbiJson from './abi/ImageBoardCollection.json';
-import { gridOf, layoutProblem, type BlockErrorName, type Rect, type Zone } from './image-grid';
+import { cellMapFromBlocks, cellMapOf, gridOf, layoutProblem, termsError, type BlockErrorName, type CellMap, type GridState, type Rect, type TakeTerms, type Zone } from './image-grid';
 import type { CallRequest } from './writes';
 
 export * from './image-grid';
@@ -58,15 +63,16 @@ export interface ImageBoardDeployment {
 }
 
 /**
- * Robinhood Chain Testnet, deployed 2026-10-12 by `scripts/deploy-image-boards.ts`: the first
- * generation whose collection takes its name and symbol from its deployer (read them with `name()`
- * and `symbol()`). Its token is a `TestUSD` with EIP-2612 `permit` — not
- * `ROBINHOOD_TESTNET_TUSD`, which page boards settle in and which has none. Verified on Blockscout.
+ * Robinhood Chain Testnet, deployed 2026-10-14 by `scripts/deploy-image-boards.ts`: the takeovers
+ * generation — any sold square can be bought from its owner, on terms each board's creator chose.
+ * Its collection takes its name and symbol from its deployer (read them with `name()` and
+ * `symbol()`). Its token is a `TestUSD` with EIP-2612 `permit` — not `ROBINHOOD_TESTNET_TUSD`,
+ * which page boards settle in and which has none. Verified on Blockscout.
  */
 export const ROBINHOOD_TESTNET_IMAGE_BOARDS: ImageBoardDeployment = {
   chainId: 46630,
-  implementation: '0x0a6630ba362e103fc258112b94e58834e5fa9f16',
-  collection: '0x891132c16bd2bff50c839ff2d679fe3dd6d908c6',
+  implementation: '0x626490ec8a3982238fe178d76da2a68f2df57888',
+  collection: '0xea60812cf6283745f1c9e455c6028d8042ae85e7',
   token: '0x20f5aa5b5a49571925ede3fc206347963ddba783',
   decimals: 6,
   mintable: true,
@@ -144,6 +150,14 @@ export interface ImageBoardState {
   imageHash: Hex;
   /** Block numbers run 1..blockCount. Kept blocks, the creator's, are the first ones. */
   blockCount: number;
+  /** Who the board was created for, and owns its kept blocks. Never moves; the board's NFT does. */
+  creator: Address;
+  /** Kept blocks are 1..keptCount. They cannot be taken while `creator` owns them. */
+  keptCount: number;
+  /** How a sold cell is taken, chosen by the creator. Frozen. */
+  terms: TakeTerms;
+  /** Cells no block holds. */
+  freeCells: number;
 }
 
 export interface BlockState extends Rect {
@@ -154,8 +168,14 @@ export interface BlockState extends Rect {
   version: number;
   /** `0x0…0` when nobody is granted; a grant dies on transfer, on chain. */
   editor: Address;
-  /** What its owner listed it for; zero when it is not for sale. Ends on any change of owner. */
+  /** What its owner listed it for; zero when it is not for sale. Ends on any change of owner, and on a take. */
   listPrice: bigint;
+  /** What it cost over the creation price of its cells, in bps, rounded up: what a take of it is priced from. */
+  level: bigint;
+  /** When it was bought (or kept), in seconds. A resale or a gift does not move it. */
+  boughtAt: bigint;
+  /** How many of its cells no later block has taken. Its rectangle never changes; this does. */
+  cellsLeft: number;
 }
 
 /**
@@ -177,8 +197,30 @@ function reader(client: PublicClient, address: Address, { at }: ReadAt = {}) {
  *  except `blockCount`, `seller`, which follows the board's NFT, and `priceBps`, which falls. */
 export async function readImageBoard(client: PublicClient, board: Address, opts: ReadAt = {}): Promise<ImageBoardState> {
   const read = reader(client, board, opts);
-  const [collection, boardToken, seller, settlementToken, width, height, cellSize, gridCols, gridRows, cellPrice, zones, imageHash, blockCount, priceBps] =
-    await Promise.all([
+  const [
+    collection,
+    boardToken,
+    seller,
+    settlementToken,
+    width,
+    height,
+    cellSize,
+    gridCols,
+    gridRows,
+    cellPrice,
+    zones,
+    imageHash,
+    blockCount,
+    priceBps,
+    creator,
+    keptCount,
+    takeBps,
+    payoutBps,
+    reversionBps,
+    maxReversionWeeks,
+    cooldownSecs,
+    freeCells,
+  ] = await Promise.all([
       read<Address>('collection'),
       read<bigint>('boardTokenId'),
       read<Address>('seller'),
@@ -193,6 +235,14 @@ export async function readImageBoard(client: PublicClient, board: Address, opts:
       read<Hex>('imageHash'),
       read<bigint>('blockCount'),
       read<bigint>('priceBps'),
+      read<Address>('creator'),
+      read<number>('keptCount'),
+      read<number>('takeBps'),
+      read<number>('payoutBps'),
+      read<number>('reversionBps'),
+      read<number>('maxReversionWeeks'),
+      read<number>('cooldownSecs'),
+      read<bigint>('freeCells'),
     ]);
   return {
     address: board,
@@ -210,6 +260,16 @@ export async function readImageBoard(client: PublicClient, board: Address, opts:
     imageHash,
     blockCount: Number(blockCount),
     priceBps: Number(priceBps),
+    creator,
+    keptCount: Number(keptCount),
+    terms: {
+      takeBps: Number(takeBps),
+      payoutBps: Number(payoutBps),
+      reversionBps: Number(reversionBps),
+      maxReversionWeeks: Number(maxReversionWeeks),
+      cooldownSecs: Number(cooldownSecs),
+    },
+    freeCells: Number(freeCells),
   };
 }
 
@@ -218,7 +278,10 @@ export async function readImageBoard(client: PublicClient, board: Address, opts:
 export async function readBlock(client: PublicClient, board: Address, tokenId: bigint, opts: ReadAt = {}): Promise<BlockState> {
   const read = reader(client, board, opts);
   const [shape, owner, editor, listPrice] = await Promise.all([
-    read<{ col: number; row: number; cols: number; rows: number; version: number; contentHash: Hex }>('blockOf', [tokenId]),
+    read<{ col: number; row: number; cols: number; rows: number; version: number; level: bigint; boughtAt: number; cellsLeft: number; contentHash: Hex }>(
+      'blockOf',
+      [tokenId],
+    ),
     read<Address>('ownerOf', [tokenId]),
     read<Address>('editorOf', [tokenId]),
     read<bigint>('listPrice', [tokenId]),
@@ -234,6 +297,9 @@ export async function readBlock(client: PublicClient, board: Address, tokenId: b
     version: shape.version,
     editor,
     listPrice,
+    level: shape.level,
+    boughtAt: BigInt(shape.boughtAt),
+    cellsLeft: shape.cellsLeft,
   };
 }
 
@@ -250,64 +316,77 @@ export function readBlocks(client: PublicClient, board: Address, blockCount: num
 
 /**
  * Selector → name, built from the ABI so a renamed error fails loudly here instead of reading as
- * an unknown answer. `blockError` returns `bytes4(0)` for a block that can be bought.
+ * an unknown answer. `buyError` returns `bytes4(0)` for a buy that can go through.
  */
 const BLOCK_ERRORS: ReadonlyMap<string, BlockErrorName> = new Map([
   ['0x00000000', 'none'],
-  ...(['EmptyBlock', 'OutsideGrid', 'CellsTaken'] as const).map((name): [string, BlockErrorName] => {
-    if (!IMAGE_BOARD_ABI.some((item) => item.type === 'error' && item.name === name)) {
-      throw new Error(`ImageBoard ABI has no error ${name}`);
-    }
-    return [toFunctionSelector(`${name}()`), name];
-  }),
+  ...(['EmptyBlock', 'OutsideGrid', 'CellsTaken', 'CellsKept', 'CoolingDown', 'TooLarge', 'TooManyBlocks'] as const).map(
+    (name): [string, BlockErrorName] => {
+      if (!IMAGE_BOARD_ABI.some((item) => item.type === 'error' && item.name === name)) {
+        throw new Error(`ImageBoard ABI has no error ${name}`);
+      }
+      return [toFunctionSelector(`${name}()`), name];
+    },
+  ),
 ]);
 
+function rectsArgs(rects: readonly Rect[]) {
+  return rects.map((rect) => {
+    const [col, row, cols, rows] = rectArgs(rect);
+    return { col, row, cols, rows };
+  });
+}
+
 /**
- * The BUY GATE: the contract's own answer for this block, now. A buy action asks this immediately
- * before it builds the call, so a screen's preview from `image-grid.ts` is never what decides.
+ * The BUY GATE: what `buyBlocks` would revert with for these rectangles, now — the contract's own
+ * `buyError`, in its order. A buy action asks this immediately before anyone signs, so the screen's
+ * preview (`buyError` in `image-grid.ts`) is never what decides.
  */
-export async function readBlockError(client: PublicClient, board: Address, rect: Rect): Promise<BlockErrorName> {
-  const selector = await reader(client, board)<Hex>('blockError', [rect.col, rect.row, rect.cols, rect.rows]);
+export async function readBuyError(client: PublicClient, board: Address, rects: readonly Rect[]): Promise<BlockErrorName> {
+  if (rects.length === 0) return 'EmptyBlock';
+  const selector = await reader(client, board)<Hex>('buyError', [rectsArgs(rects)]);
   const name = BLOCK_ERRORS.get(selector.toLowerCase());
-  if (!name) throw new Error(`blockError answered ${selector}, which is no error this client knows`);
+  if (!name) throw new Error(`buyError answered ${selector}, which is no error this client knows`);
   return name;
 }
 
 /**
- * The BUY GATE for several rectangles bought together: what `buyBlocks` would revert with, now. Each
- * rectangle in order asks the contract's `blockError`, and one that shares a cell with an earlier
- * rectangle of the same list is `CellsTaken` — which the contract finds the same way, taking each in
- * turn. The screen's preview is `buyError` in `image-grid.ts`.
+ * What the contract charges for these rectangles bought together, now: exactly what `buyBlocks`
+ * pulls, and what a buy names as its most (`maxTotal`). Reverts when `readBuyError` is not `none`,
+ * so ask that first. `quoteBlocks` in `image-grid.ts` is the screen's preview of it.
  */
-export async function readBuyError(client: PublicClient, board: Address, rects: readonly Rect[]): Promise<BlockErrorName> {
-  if (rects.length === 0) return 'EmptyBlock';
-  const answers = await Promise.all(rects.map((rect) => readBlockError(client, board, rect)));
-  for (const [i, rect] of rects.entries()) {
-    if (answers[i] !== 'none') return answers[i]!;
-    if (rects.slice(0, i).some((earlier) => rectsShareACell(earlier, rect))) return 'CellsTaken';
-  }
-  return 'none';
-}
-
-function rectsShareACell(a: Rect, b: Rect): boolean {
-  return a.col < b.col + b.cols && b.col < a.col + a.cols && a.row < b.row + b.rows && b.row < a.row + a.rows;
+export function readQuoteBlocks(client: PublicClient, board: Address, rects: readonly Rect[]): Promise<bigint> {
+  return reader(client, board)<bigint>('quoteBlocks', [rectsArgs(rects)]);
 }
 
 /**
- * What the contract charges for this block, now — the figure a buyer's permit is signed for.
- * `image-grid.ts`'s `quote` is the screen's preview of it; this is what a buy is prepared with.
+ * Which block holds every cell, in one batch of `cellRow` reads, a row each. `grid` is the board's
+ * (`readImageBoard`); it never changes.
  */
-export function readQuote(client: PublicClient, board: Address, rect: Rect): Promise<bigint> {
-  return reader(client, board)<bigint>('quote', [rect.col, rect.row, rect.cols, rect.rows]);
+export async function readCellMap(client: PublicClient, board: Address, grid: { cols: number; rows: number }, opts: ReadAt = {}): Promise<CellMap> {
+  const read = reader(client, board, opts);
+  const rows = await Promise.all(Array.from({ length: grid.rows }, (_, r) => read<readonly bigint[]>('cellRow', [BigInt(r)])));
+  return cellMapOf(grid, rows);
 }
 
 /**
- * What the contract charges for these rectangles bought together, now: the sum of each one's own
- * `quote`, which is exactly what `buyBlocks` pulls.
+ * The twin's view of a board, from the reads a screen already makes, pinned to one block. `blocks`
+ * is every block (`readBlocks`); the cell map is painted from them (`cellMapFromBlocks`) unless
+ * given — `readCellMap` reads it instead.
  */
-export async function readBuyQuote(client: PublicClient, board: Address, rects: readonly Rect[]): Promise<bigint> {
-  const quotes = await Promise.all(rects.map((rect) => readQuote(client, board, rect)));
-  return quotes.reduce((sum, q) => sum + q, 0n);
+export function gridStateOf(board: ImageBoardState, blocks: readonly BlockState[], cells?: CellMap): GridState {
+  const grid = { cols: board.gridCols, rows: board.gridRows };
+  return {
+    grid,
+    cellPrice: board.cellPrice,
+    zones: board.zones,
+    priceBps: board.priceBps,
+    terms: board.terms,
+    creator: board.creator,
+    keptCount: board.keptCount,
+    cells: cells ?? cellMapFromBlocks(grid, blocks),
+    blocks: new Map(blocks.map((b) => [Number(b.tokenId), { owner: b.owner, level: b.level, boughtAt: b.boughtAt }])),
+  };
 }
 
 /** What share of the creation prices a square costs now. The one board read that changes by an act of its holder. */
@@ -315,11 +394,9 @@ export async function readPriceBps(client: PublicClient, board: Address, opts: R
   return Number(await reader(client, board, opts)<bigint>('priceBps'));
 }
 
-/** The taken-cells word for each of these rows, in one batch — what the gas estimate needs. */
-export async function readRowBits(client: PublicClient, board: Address, rows: readonly number[], opts: ReadAt = {}): Promise<Map<number, bigint>> {
-  const read = reader(client, board, opts);
-  const words = await Promise.all(rows.map((r) => read<bigint>('rowBits', [BigInt(r)])));
-  return new Map(rows.map((r, i) => [r, words[i]!]));
+/** Cells no block holds: zero once every square has had a first sale. They can still be taken. */
+export async function readFreeCells(client: PublicClient, board: Address, opts: ReadAt = {}): Promise<number> {
+  return Number(await reader(client, board, opts)<bigint>('freeCells'));
 }
 
 /** The board's zones, frozen at creation: what a listing needs to say "from" rather than "per square". */
@@ -381,6 +458,8 @@ export interface CreateImageBoardOptions {
   zones: readonly Zone[];
   /** Required, `[]` for none: blocks the seller keeps, made with the board as theirs. */
   kept: readonly Rect[];
+  /** How a sold cell is taken. Required, with no default: the creator chooses, as a page board's publisher does. */
+  terms: TakeTerms;
 }
 
 /**
@@ -400,6 +479,12 @@ export function buildCreateImageBoard(o: CreateImageBoardOptions): CallRequest<'
   if (layout) throw new Error(`image board: ${layout.problem} at ${layout.index}`);
   // The contract stores a zone's price in 192 bits; a larger one would not encode.
   if (o.zones.some((z) => z.cellPrice >= 1n << 192n)) throw new Error('image board: a zone price is out of range');
+  for (const [field, value] of Object.entries(o.terms)) {
+    if (!Number.isInteger(value) || value < 0) throw new Error(`image board: ${field} ${value} is not a whole number`);
+  }
+  // Checked against the cut every deployment carries; the deploy script refuses any other.
+  const terms = termsError(o.terms, Number(IMAGE_BOARD_PROTOCOL_BPS));
+  if (terms) throw new Error(`image board: the terms are refused (${terms})`);
   return {
     address: o.collection,
     abi: IMAGE_BOARD_COLLECTION_ABI,
@@ -415,6 +500,13 @@ export function buildCreateImageBoard(o: CreateImageBoardOptions): CallRequest<'
         imageHash: o.imageHash,
         zones: o.zones.map((z) => ({ col: z.col, row: z.row, cols: z.cols, rows: z.rows, cellPrice: z.cellPrice })),
         kept: o.kept.map((k) => ({ col: k.col, row: k.row, cols: k.cols, rows: k.rows })),
+        terms: {
+          takeBps: BigInt(o.terms.takeBps),
+          payoutBps: BigInt(o.terms.payoutBps),
+          reversionBps: BigInt(o.terms.reversionBps),
+          maxReversionWeeks: BigInt(o.terms.maxReversionWeeks),
+          cooldownSecs: BigInt(o.terms.cooldownSecs),
+        },
       },
     ],
   };
@@ -439,23 +531,32 @@ function namedRecipient(recipient: Address): Address {
 /** The `Rect[]` `buyBlocks` takes. An empty list is refused here, as the contract would. */
 function rectsArg(rects: readonly Rect[]): { col: number; row: number; cols: number; rows: number }[] {
   if (rects.length === 0) throw new Error('image board: a buy needs at least one rectangle');
-  return rects.map((rect) => {
-    const [col, row, cols, rows] = rectArgs(rect);
-    return { col, row, cols, rows };
-  });
+  return rectsArgs(rects);
 }
 
-/** `buyBlocks`, for a payer that has already approved the board: every rectangle its own block, all or nothing. */
+function namedMax(maxTotal: bigint): bigint {
+  // A buy with no bound pays whatever the cells cost when it lands, which a take can raise.
+  if (maxTotal <= 0n) throw new Error('image board: a buy must name the most it will pay');
+  return maxTotal;
+}
+
+/**
+ * `buyBlocks`, for a payer that has already approved the board: every rectangle its own block, all
+ * or nothing. `maxTotal` is the total the buyer was shown (`readQuoteBlocks`); the contract refuses
+ * the buy (`PriceTooHigh`) if the cells cost more when it lands, and after `deadline` (seconds).
+ */
 export function buildBuyBlocks(o: {
   board: Address;
   recipient: Address;
   rects: readonly Rect[];
-}): CallRequest<'buyBlocks', [Address, unknown]> {
+  maxTotal: bigint;
+  deadline: bigint;
+}): CallRequest<'buyBlocks', [Address, unknown, bigint, bigint]> {
   return {
     address: o.board,
     abi: IMAGE_BOARD_ABI,
     functionName: 'buyBlocks',
-    args: [namedRecipient(o.recipient), rectsArg(o.rects)],
+    args: [namedRecipient(o.recipient), rectsArg(o.rects), namedMax(o.maxTotal), o.deadline],
   };
 }
 
@@ -467,27 +568,28 @@ export interface PermitSignature {
 }
 
 /**
- * `buyBlocksWithPermit`: one signature (`permitTypedData`) plus one transaction. `permitValue` is the
- * amount the permit was SIGNED for — the total the buyer was shown. The board pulls the total at the
- * moment of the buy, which a price cut can only have lowered.
+ * `buyBlocksWithPermit`: one signature (`permitTypedData`) plus one transaction. `maxTotal` is the
+ * total the buyer was shown, and the permit is signed for exactly it; its deadline is the buy's.
+ * The board pulls what the cells cost when the buy lands and refuses it (`PriceTooHigh`) above
+ * `maxTotal` — a take, a later buy or a week's reversion can move it either way.
  */
 export function buildBuyBlocksWithPermit(o: {
   board: Address;
   recipient: Address;
   rects: readonly Rect[];
-  permitValue: bigint;
+  maxTotal: bigint;
   permit: PermitSignature;
 }): CallRequest<'buyBlocksWithPermit', [Address, unknown, bigint, bigint, number, Hex, Hex]> {
   return {
     address: o.board,
     abi: IMAGE_BOARD_ABI,
     functionName: 'buyBlocksWithPermit',
-    args: [namedRecipient(o.recipient), rectsArg(o.rects), o.permitValue, o.permit.deadline, o.permit.v, o.permit.r, o.permit.s],
+    args: [namedRecipient(o.recipient), rectsArg(o.rects), namedMax(o.maxTotal), o.permit.deadline, o.permit.v, o.permit.r, o.permit.s],
   };
 }
 
 /**
- * `lowerPrices`: every unsold square to `priceBps` of the price set at creation. The board's holder
+ * `lowerPrices`: every free square to `priceBps` of the price set at creation; sold cells never see it. The board's holder
  * sends it; the contract refuses anyone else, and anything not below the current share.
  */
 export function buildLowerPrices(o: { board: Address; priceBps: number }): CallRequest<'lowerPrices', [bigint]> {

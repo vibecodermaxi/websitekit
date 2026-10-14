@@ -111,7 +111,8 @@ contract ImageBoardPriceCutTest is ImageBoardBase {
         board = _create(cfg);
         _lower(seller, 1);
         assertEq(board.quote(0, 0, 1, 1), 1);
-        assertEq(board.quote(0, 0, 0, 1), 0, "an empty rectangle is still nothing");
+        vm.expectRevert(ImageBoard.EmptyBlock.selector);
+        board.quote(0, 0, 0, 1); // an empty rectangle has no price
     }
 
     function test_zonesAreScaledAlike() public {
