@@ -9,6 +9,7 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import { Pricing } from "./Pricing.sol";
+import { RentalsLib } from "./RentalsLib.sol";
 import { TermsLib } from "./TermsLib.sol";
 
 /// @notice What a board needs of the collection that made it: who holds the board's NFT, and a way
@@ -74,6 +75,11 @@ contract ImageBoard is ReentrancyGuardTransient {
 
     uint256 internal constant BPS_DENOMINATOR = 10_000;
     uint256 internal constant BPS_SQUARED = 100_000_000;
+    /// @notice The smallest and largest square a board may be cut into, in the image's own pixels
+    /// (2026-10-20: a range, not the three sizes the platform offers today, so a larger square for a
+    /// large photo needs no new contract). The grid's caps below bound the count either way.
+    uint256 public constant MIN_CELL_SIZE = 10;
+    uint256 public constant MAX_CELL_SIZE = 200;
     uint256 internal constant MAX_GRID_COLS = 256;
     uint256 internal constant MAX_GRID_ROWS = 1_000;
     /// @dev A block id per cell, eight to a word, so a row of 256 cells is 32 words.
@@ -93,8 +99,11 @@ contract ImageBoard is ReentrancyGuardTransient {
     /// `ImageBoardTakeovers.t.sol`.
     uint256 public constant MAX_WORDS_PER_BUY = 512;
     /// @notice The most blocks one buy may take cells from, counted once per rectangle. Each costs
-    /// a credit, a count and an event, so this bounds a take across many small blocks.
-    uint256 public constant MAX_BLOCKS_TAKEN_PER_BUY = 128;
+    /// a credit, a count and an event — and, if rented, settling and refunding its tenancy — so this
+    /// bounds a take across many small blocks. 88 (2026-10-20, 128 before rentals): a take of 88
+    /// blocks, each rented to its own tenant and offered for rent and for resale, fits the same
+    /// headroom with ~2% to spare (92 left ~1%).
+    uint256 public constant MAX_BLOCKS_TAKEN_PER_BUY = 88;
     /// @dev The lookup a rectangle tallies covered blocks in: a power of two, twice the most entries.
     uint256 internal constant TABLE_SIZE = 256;
 
@@ -110,6 +119,13 @@ contract ImageBoard is ReentrancyGuardTransient {
     /// @notice What a resale pays whoever holds the board's NFT at that moment, on top of the
     /// protocol's cut. A constant, like the 5% creator royalty on the board itself.
     uint256 public constant RESALE_ROYALTY_BPS = 500;
+
+    /// @notice What a rental pays whoever holds the board's NFT at that moment, beside the protocol's
+    /// cut, as a resale does. Fixed: there is no publisher's dial here.
+    uint256 public constant RENT_ROYALTY_BPS = 500;
+    /// @notice The shortest and longest term a block can be rented for, or listed at.
+    uint64 public constant MIN_RENTAL_DURATION = 1 hours;
+    uint64 public constant MAX_RENTAL_TERM = 365 days;
 
     uint256 public immutable protocolBps;
     address public immutable protocolTreasury;
@@ -152,7 +168,7 @@ contract ImageBoard is ReentrancyGuardTransient {
         /// The image's own pixels.
         uint32 width;
         uint32 height;
-        /// 10, 15 or 20.
+        /// From `MIN_CELL_SIZE` to `MAX_CELL_SIZE`.
         uint8 cellSize;
         uint256 cellPrice;
         /// Hash of the original image bytes.
@@ -237,6 +253,30 @@ contract ImageBoard is ReentrancyGuardTransient {
     /// ever names a price its current owner set for what the block is now.
     mapping(uint256 => uint256) public listPrice;
 
+    /// @notice A block offered for rent: its daily rate and the longest term it may be taken for. A
+    /// rate of zero is not offered. Ends on any change of owner and on a take of any of its cells.
+    struct RentListing {
+        uint192 ratePerDay;
+        uint64 maxDurationSecs;
+    }
+
+    /// @notice A block's tenancy. `prepaid` is the rent net of both cuts, escrowed here and streamed
+    /// to whoever owns the block, linearly from `start` to `expiry`; `claimed` is what has been
+    /// credited of it. `tenantHash` is the tenant's picture, shown instead of the owner's while the
+    /// term is live — held apart, so the owner's picture returns by itself when it ends and nothing
+    /// needs to end a rental. `expiry` zero is no tenancy.
+    struct Rental {
+        address tenant;
+        uint40 start;
+        uint40 expiry;
+        uint128 prepaid;
+        uint128 claimed;
+        bytes32 tenantHash;
+    }
+
+    mapping(uint256 => RentListing) public rentListing;
+    mapping(uint256 => Rental) internal _rentals;
+
     Zone[] internal _zones;
 
     // ---------------------------------------------------------------------
@@ -264,6 +304,12 @@ contract ImageBoard is ReentrancyGuardTransient {
     error PriceChanged();
     error NotBoardHolder();
     error NothingLeft();
+    error NotForRent();
+    error RateChanged();
+    error TermTooLong();
+    error RentalActive();
+    error RentalExpired();
+    error NotTenant();
 
     event BoardInitialized(
         address indexed collection,
@@ -305,6 +351,15 @@ contract ImageBoard is ReentrancyGuardTransient {
     event PricesLowered(address indexed holder, uint256 priceBps);
     event BlockListed(uint256 indexed blockId, address indexed owner, uint256 price);
     event BlockDelisted(uint256 indexed blockId, address indexed owner);
+    /// @notice A rent listing set, or ended with a `ratePerDay` of zero.
+    event RentListed(uint256 indexed blockId, address indexed owner, uint256 ratePerDay, uint256 maxDurationSecs);
+    /// @param cost What the tenant paid; the protocol and the board's holder were credited their 5% each.
+    event BlockRented(uint256 indexed blockId, address indexed tenant, address indexed payer, uint256 expiry, uint256 cost);
+    event RentalExtended(uint256 indexed blockId, address indexed tenant, uint256 expiry, uint256 cost);
+    /// @notice Rent streamed so far, credited to whoever owned the block while it accrued.
+    event RentClaimed(uint256 indexed blockId, address indexed owner, uint256 amount);
+    /// @notice A take cost the tenancy `cells` cells; the tenant was credited the unearned rent for them.
+    event RentRefunded(uint256 indexed blockId, address indexed tenant, uint256 cells, uint256 amount);
     /// @param blockSeller Who sold it, and was credited `price − protocolCut − royalty`.
     /// @param boardHolder Who held the board's NFT at the moment of the sale, and was credited `royalty`.
     event BlockResold(
@@ -334,14 +389,17 @@ contract ImageBoard is ReentrancyGuardTransient {
     /// @notice Called by the collection, in the transaction that clones this board. `msg.sender`
     /// becomes the collection: a clone initialized by anyone else is not one of ours, because our
     /// collection does not know it and will not take its updates. `creator_` owns the kept blocks;
-    /// the collection has already refused a zero one.
-    function initialize(uint256 boardTokenId_, address creator_, Config calldata cfg) external {
+    /// the collection has already refused a zero one. `config` is an ABI-encoded `Config`: the
+    /// collection passes it through unread, so a later implementation may take another shape.
+    /// The collection checks `settlementToken` against its allowlist after this returns.
+    function initialize(uint256 boardTokenId_, address creator_, bytes calldata config) external {
         if (_initialized) revert AlreadyInitialized();
         _initialized = true;
+        Config memory cfg = abi.decode(config, (Config));
         if (cfg.settlementToken == address(0)) revert ZeroAddress();
-        if (cfg.cellSize != 10 && cfg.cellSize != 15 && cfg.cellSize != 20) revert InvalidConfig();
+        if (cfg.cellSize < MIN_CELL_SIZE || cfg.cellSize > MAX_CELL_SIZE) revert InvalidConfig();
         if (cfg.cellPrice == 0 || cfg.imageHash == bytes32(0)) revert InvalidConfig();
-        Terms calldata t = cfg.terms;
+        Terms memory t = cfg.terms;
         TermsLib.checkEconomicsAbsolute(
             TermsLib.Economics(t.takeBps, t.payoutBps, t.reversionBps, t.maxReversionWeeks, t.cooldownSecs),
             protocolBps
@@ -375,7 +433,7 @@ contract ImageBoard is ReentrancyGuardTransient {
 
         _setZones(cfg.zones, rows);
         for (uint256 i = 0; i < cfg.kept.length; i++) {
-            Rect calldata k = cfg.kept[i];
+            Rect memory k = cfg.kept[i];
             uint256 blockId = _keep(creator_, k);
             emit BlockKept(blockId, creator_, k.col, k.row, k.cols, k.rows);
         }
@@ -385,11 +443,11 @@ contract ImageBoard is ReentrancyGuardTransient {
     /// @dev Overlap is checked on a bitmap in memory, one word per row, so it costs the zones' rows
     /// rather than every pair of zones. A zone may cover kept cells: those are never sold first-hand,
     /// so the zone's price applies to them only if the creator lets them go and someone takes them.
-    function _setZones(Zone[] calldata given, uint256 rows) internal {
+    function _setZones(Zone[] memory given, uint256 rows) internal {
         if (given.length > MAX_ZONES) revert InvalidConfig();
         uint256[] memory covered = new uint256[](rows);
         for (uint256 i = 0; i < given.length; i++) {
-            Zone calldata z = given[i];
+            Zone memory z = given[i];
             if (z.cellPrice == 0 || z.cols == 0 || z.rows == 0) revert InvalidConfig();
             if (uint256(z.col) + z.cols > gridCols || uint256(z.row) + z.rows > gridRows) revert InvalidConfig();
             uint256 mask = _mask(z.col, z.cols);
@@ -409,7 +467,7 @@ contract ImageBoard is ReentrancyGuardTransient {
 
     /// @dev A kept block: free cells only (two kept blocks that overlap revert `CellsTaken`), worth
     /// its creation prices (level 10,000), for nothing.
-    function _keep(address owner_, Rect calldata k) internal returns (uint256 blockId) {
+    function _keep(address owner_, Rect memory k) internal returns (uint256 blockId) {
         if (k.cols == 0 || k.rows == 0) revert EmptyBlock();
         if (uint256(k.col) + k.cols > gridCols || uint256(k.row) + k.rows > gridRows) revert OutsideGrid();
         uint256 end = uint256(k.col) + k.cols;
@@ -491,21 +549,6 @@ contract ImageBoard is ReentrancyGuardTransient {
         bytes4 err;
         (err, total) = _inspect(rects);
         _revertWith(err);
-    }
-
-    /// @notice `buyError` for one rectangle.
-    function blockError(uint16 col, uint16 row, uint16 cols, uint16 rows) external view returns (bytes4) {
-        return buyError(_one(col, row, cols, rows));
-    }
-
-    /// @notice `quoteBlocks` for one rectangle.
-    function quote(uint16 col, uint16 row, uint16 cols, uint16 rows) external view returns (uint256) {
-        return quoteBlocks(_one(col, row, cols, rows));
-    }
-
-    function _one(uint16 col, uint16 row, uint16 cols, uint16 rows) internal pure returns (Rect[] memory r) {
-        r = new Rect[](1);
-        r[0] = Rect(col, row, cols, rows);
     }
 
     function _inspect(Rect[] memory rects) internal view returns (bytes4, uint256 total) {
@@ -804,8 +847,12 @@ contract ImageBoard is ReentrancyGuardTransient {
             uint256 payout = (s.bases[i] * s.floors[i] * payoutBps) / BPS_SQUARED;
             pendingWithdrawals[owner_] += payout;
             sum.payouts += payout;
+            uint256 before = _blocks[from].cellsLeft;
             // A block never loses more cells than it holds: the survey counted these off the map.
-            _blocks[from].cellsLeft -= uint24(s.counts[i]);
+            _blocks[from].cellsLeft = uint24(before - s.counts[i]);
+            _shrinkTenancy(from, owner_, s.counts[i], before);
+            // Both offers were for the block as it was.
+            _endRentListing(from, owner_);
             if (listPrice[from] != 0) {
                 delete listPrice[from];
                 emit BlockDelisted(from, owner_);
@@ -882,6 +929,9 @@ contract ImageBoard is ReentrancyGuardTransient {
     /// @dev Every change of a block's owner: the editor grant and the listing both belonged to the
     /// old owner, so both end here.
     function _move(uint256 blockId, address from, address to) internal {
+        // What the tenancy earned so far was earned by the owner who held it, before it changes hands.
+        _settle(blockId, from);
+        _endRentListing(blockId, from);
         _owners[blockId] = to;
         delete _editors[blockId];
         delete listPrice[blockId];
@@ -963,6 +1013,202 @@ contract ImageBoard is ReentrancyGuardTransient {
     }
 
     // ---------------------------------------------------------------------
+    // Renting
+    // ---------------------------------------------------------------------
+
+    /// @notice Offers a block for rent at `ratePerDay`, for terms up to `maxDurationSecs`; a rate of
+    /// zero ends the offer. Its owner alone, while it still holds a cell. A new rate reaches the next
+    /// rental and the next extension, never a term already paid for.
+    function listForRent(uint256 blockId, uint256 ratePerDay, uint64 maxDurationSecs) external {
+        if (_owners[blockId] != msg.sender) revert NotBlockOwner();
+        if (ratePerDay == 0) {
+            _endRentListing(blockId, msg.sender);
+            return;
+        }
+        if (_blocks[blockId].cellsLeft == 0) revert NothingLeft();
+        if (maxDurationSecs < MIN_RENTAL_DURATION || maxDurationSecs > MAX_RENTAL_TERM) revert TermTooLong();
+        rentListing[blockId] = RentListing({ ratePerDay: SafeCast.toUint192(ratePerDay), maxDurationSecs: maxDurationSecs });
+        emit RentListed(blockId, msg.sender, ratePerDay, maxDurationSecs);
+    }
+
+    /// @notice Rents a block for `tenant` for `durationSecs` from now, at exactly `expectedRatePerDay`
+    /// — the owner can change the rate at any time, including while this is on its way. The payer
+    /// pays the whole term up front: 5% to the protocol, 5% to whoever holds the board's NFT, and the
+    /// rest held here and streamed to whoever owns the block as the term runs. A rental starting ends
+    /// any resale listing, so nobody buys a block whose term they were not shown.
+    function rent(uint256 blockId, address tenant, uint64 durationSecs, uint256 expectedRatePerDay) external nonReentrant {
+        _rent(blockId, tenant, durationSecs, expectedRatePerDay);
+    }
+
+    /// @notice `rent` in one transaction: the payer's EIP-2612 signature for exactly the term's cost.
+    function rentWithPermit(
+        uint256 blockId,
+        address tenant,
+        uint64 durationSecs,
+        uint256 expectedRatePerDay,
+        uint256 permitDeadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external nonReentrant {
+        _permit(RentalsLib.rentCost(expectedRatePerDay, durationSecs), permitDeadline, v, r, s);
+        _rent(blockId, tenant, durationSecs, expectedRatePerDay);
+    }
+
+    /// @notice The tenant makes their term `durationSecs` from now, at the CURRENT rate — an
+    /// incumbent never keeps an old rate. What they paid and has not yet streamed carries into the
+    /// new term. Live terms only; the owner ends the possibility by ending the offer.
+    function extendRental(uint256 blockId, uint64 durationSecs, uint256 expectedRatePerDay) external nonReentrant {
+        _extend(blockId, durationSecs, expectedRatePerDay);
+    }
+
+    function extendRentalWithPermit(
+        uint256 blockId,
+        uint64 durationSecs,
+        uint256 expectedRatePerDay,
+        uint256 permitDeadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external nonReentrant {
+        _permit(RentalsLib.rentCost(expectedRatePerDay, durationSecs), permitDeadline, v, r, s);
+        _extend(blockId, durationSecs, expectedRatePerDay);
+    }
+
+    /// @notice Credits each block's owner the rent streamed to them so far. Permissionless: it only
+    /// ever pays whoever owns the block, so it grants nothing.
+    function claimRent(uint256[] calldata blockIds) external {
+        for (uint256 i = 0; i < blockIds.length; i++) {
+            _settle(blockIds[i], _owners[blockIds[i]]);
+        }
+    }
+
+    /// @notice The tenant's picture for their term. The owner's picture is untouched and returns when
+    /// the term ends; the owner may change it meanwhile.
+    function editRented(uint256 blockId, bytes32 contentHash) external {
+        Rental storage t = _rentals[blockId];
+        if (block.timestamp >= t.expiry) revert RentalExpired();
+        if (msg.sender != t.tenant) revert NotTenant();
+        t.tenantHash = contentHash;
+        Block storage b = _blocks[blockId];
+        b.version += 1;
+        emit BlockEdited(blockId, msg.sender, contentHash, b.version);
+        IImageBoardCollection(collection).boardChanged();
+    }
+
+    /// @notice The picture the block shows now: the tenant's while a term is live and they have
+    /// chosen one, the owner's otherwise.
+    function shownHash(uint256 blockId) public view returns (bytes32) {
+        Rental storage t = _rentals[blockId];
+        if (block.timestamp < t.expiry && t.tenantHash != bytes32(0)) return t.tenantHash;
+        return _blocks[blockId].contentHash;
+    }
+
+    function rentalOf(uint256 blockId) external view returns (Rental memory) {
+        return _rentals[blockId];
+    }
+
+    function _rent(uint256 blockId, address tenant, uint64 durationSecs, uint256 expectedRatePerDay) internal {
+        if (tenant == address(0)) revert ZeroAddress();
+        RentListing memory l = _checkRate(blockId, durationSecs, expectedRatePerDay);
+        address owner_ = _owners[blockId];
+        Rental storage t = _rentals[blockId];
+        if (block.timestamp < t.expiry) revert RentalActive();
+        // A lapsed term's last stream is its owner's before a new one starts.
+        _settle(blockId, owner_);
+        uint256 cost = RentalsLib.rentCost(l.ratePerDay, durationSecs);
+        uint256 expiry = block.timestamp + durationSecs;
+        t.tenant = tenant;
+        t.start = uint40(block.timestamp);
+        t.expiry = uint40(expiry);
+        t.prepaid = SafeCast.toUint128(_book(cost));
+        t.claimed = 0;
+        delete t.tenantHash;
+        if (listPrice[blockId] != 0) {
+            delete listPrice[blockId];
+            emit BlockDelisted(blockId, owner_);
+        }
+        emit BlockRented(blockId, tenant, msg.sender, expiry, cost);
+    }
+
+    function _extend(uint256 blockId, uint64 durationSecs, uint256 expectedRatePerDay) internal {
+        Rental storage t = _rentals[blockId];
+        if (block.timestamp >= t.expiry) revert RentalExpired();
+        if (msg.sender != t.tenant) revert NotTenant();
+        RentListing memory l = _checkRate(blockId, durationSecs, expectedRatePerDay);
+        _settle(blockId, _owners[blockId]);
+        uint256 cost = RentalsLib.rentCost(l.ratePerDay, durationSecs);
+        uint256 expiry = block.timestamp + durationSecs;
+        // Settle, then restart: the unstreamed remainder rolls into the new term with the new rent.
+        t.prepaid = SafeCast.toUint128(t.prepaid - t.claimed + _book(cost));
+        t.claimed = 0;
+        t.start = uint40(block.timestamp);
+        t.expiry = uint40(expiry);
+        emit RentalExtended(blockId, msg.sender, expiry, cost);
+    }
+
+    /// @dev The offer the payer agreed to, and a term inside it.
+    function _checkRate(uint256 blockId, uint64 durationSecs, uint256 expectedRatePerDay)
+        internal
+        view
+        returns (RentListing memory l)
+    {
+        l = rentListing[blockId];
+        if (l.ratePerDay == 0) revert NotForRent();
+        if (l.ratePerDay != expectedRatePerDay) revert RateChanged();
+        if (durationSecs < MIN_RENTAL_DURATION || durationSecs > l.maxDurationSecs) revert TermTooLong();
+    }
+
+    /// @dev Pulls a term's `cost` from the payer, credits the protocol and the board's holder, and
+    /// returns the rest, which the caller escrows in the tenancy.
+    function _book(uint256 cost) internal returns (uint256 net) {
+        uint256 cut;
+        uint256 royalty;
+        (cut, royalty, net) = RentalsLib.rentSplit(cost, protocolBps, RENT_ROYALTY_BPS);
+        pendingWithdrawals[protocolTreasury] += cut;
+        pendingWithdrawals[seller()] += royalty;
+        IERC20(settlementToken).safeTransferFrom(msg.sender, address(this), cost);
+    }
+
+    /// @dev Credits `owner_` the rent streamed since the last settlement. Nothing when unrented.
+    function _settle(uint256 blockId, address owner_) internal {
+        Rental storage t = _rentals[blockId];
+        uint256 accrued = RentalsLib.accruedOf(t.prepaid, t.start, t.expiry, block.timestamp);
+        uint256 due = accrued - t.claimed;
+        if (due == 0) return;
+        t.claimed = uint128(accrued);
+        pendingWithdrawals[owner_] += due;
+        emit RentClaimed(blockId, owner_, due);
+    }
+
+    /// @dev A take cost a rented block `lost` of its `before` cells. The owner is credited what has
+    /// streamed; the tenant is refunded the unstreamed rent for the cells lost, in proportion, rounded
+    /// down; the rest streams on over the cells left, from now to the same end.
+    function _shrinkTenancy(uint256 blockId, address owner_, uint256 lost, uint256 before) internal {
+        Rental storage t = _rentals[blockId];
+        if (block.timestamp >= t.expiry) return;
+        _settle(blockId, owner_);
+        uint256 unstreamed = t.prepaid - t.claimed;
+        uint256 refund = (unstreamed * lost) / before;
+        t.prepaid = uint128(unstreamed - refund);
+        t.claimed = 0;
+        t.start = uint40(block.timestamp);
+        pendingWithdrawals[t.tenant] += refund;
+        emit RentRefunded(blockId, t.tenant, lost, refund);
+    }
+
+    function _endRentListing(uint256 blockId, address owner_) internal {
+        if (rentListing[blockId].ratePerDay == 0) return;
+        delete rentListing[blockId];
+        emit RentListed(blockId, owner_, 0, 0);
+    }
+
+    /// @dev A failed `permit` is ignored, as on every buy: without an allowance the pull refuses.
+    function _permit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) internal {
+        try IERC20Permit(settlementToken).permit(msg.sender, address(this), value, deadline, v, r, s) { } catch { }
+    }
+
+    // ---------------------------------------------------------------------
     // Content
     // ---------------------------------------------------------------------
 
@@ -1023,23 +1269,12 @@ contract ImageBoard is ReentrancyGuardTransient {
     // Reads
     // ---------------------------------------------------------------------
 
-    function gridSize() external view returns (uint16 cols, uint16 rows) {
-        return (gridCols, gridRows);
-    }
-
     /// @notice Which block holds each cell of `row`: ⌈gridCols / 8⌉ words, eight 32-bit ids each,
     /// column `c` in word `c / 8`, lane `c % 8`. Zero is a free cell.
     function cellRow(uint256 row) external view returns (uint256[] memory words) {
         words = new uint256[]((uint256(gridCols) + CELLS_PER_WORD - 1) / CELLS_PER_WORD);
         for (uint256 i = 0; i < words.length; i++) {
             words[i] = _cellWords[row * WORDS_PER_ROW + i];
-        }
-    }
-
-    /// @notice Which cells of `row` some block holds, one bit per column.
-    function rowBits(uint256 row) external view returns (uint256 bits) {
-        for (uint256 c = 0; c < gridCols; c++) {
-            if (_idAt(row, c) != 0) bits |= uint256(1) << c;
         }
     }
 

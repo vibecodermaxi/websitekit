@@ -4,10 +4,13 @@ pragma solidity 0.8.30;
 import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardReads } from "../test/ImageBoardReads.sol";
 import { ImageBoardCollection } from "../src/ImageBoardCollection.sol";
 import { TermsLib } from "../src/TermsLib.sol";
 import { TestUSD } from "../src/mocks/TestUSD.sol";
 
+
+using ImageBoardReads for ImageBoard;
 /// @notice The image-board grid rule as JSONL, for the TypeScript twin to assert against
 /// (`packages/websitekit-sdk/src/image-grid.ts`). Written to `out/image-grid-vectors.jsonl` via `vm.writeLine`.
 ///
@@ -86,7 +89,7 @@ contract GenImageGridVectors is Script {
     }
 
     function _emitGrids() internal {
-        uint32[3][21] memory cases = [
+        uint32[3][28] memory cases = [
             [uint32(300), 671, 10], // §2's example: 30×67
             [uint32(300), 671, 15],
             [uint32(300), 671, 20],
@@ -106,8 +109,15 @@ contract GenImageGridVectors is Script {
             [uint32(100), 10_010, 10], // 1,001 → refused
             [uint32(100), 15_014, 15], // 1,000 at 15
             [uint32(100), 20_020, 20], // 1,001 at 20 → refused
-            [uint32(100), 100, 12], // not a cell size
-            [uint32(100), 100, 5] // rejected in §2
+            [uint32(100), 100, 12], // any whole size in the range (2026-10-20), not only 10, 15 or 20
+            [uint32(100), 100, 9], // one under MIN_CELL_SIZE → refused
+            [uint32(100), 100, 5], // rejected in §2
+            [uint32(200), 200, 200], // MAX_CELL_SIZE, one cell
+            [uint32(1000), 1000, 199],
+            [uint32(1000), 1000, 201], // one over MAX_CELL_SIZE → refused
+            [uint32(1000), 1000, 255], // the most a uint8 holds → refused
+            [uint32(51_399), 400, 200], // 256 across at 200
+            [uint32(51_400), 400, 200] // 257 at 200 → refused
         ];
         for (uint256 i = 0; i < cases.length; i++) {
             uint32 w = cases[i][0];
@@ -121,7 +131,7 @@ contract GenImageGridVectors is Script {
                 ',"cellSize":',
                 vm.toString(cell)
             );
-            try collection.createBoardFor(SELLER, _config(w, h, cell)) returns (address b, uint256) {
+            try collection.createBoardFor(SELLER, abi.encode(_config(w, h, cell))) returns (address b, uint256) {
                 (uint16 c, uint16 r) = ImageBoard(b).gridSize();
                 _write(string.concat(head, ',"gridCols":', vm.toString(c), ',"gridRows":', vm.toString(r), ',"error":"none"}'));
             } catch (bytes memory reason) {
@@ -188,7 +198,7 @@ contract GenImageGridVectors is Script {
         cfg.zones = zones;
         cfg.kept = kept;
         string memory err = "none";
-        try collection.createBoardFor(SELLER, cfg) { }
+        try collection.createBoardFor(SELLER, abi.encode(cfg)) { }
         catch (bytes memory reason) {
             bytes4 sel = bytes4(reason);
             if (sel == ImageBoard.InvalidConfig.selector) err = "InvalidConfig";
@@ -265,7 +275,7 @@ contract GenImageGridVectors is Script {
         ImageBoard.Config memory cfg = _config(125, 104, 10);
         cfg.terms = ImageBoard.Terms(take, payout, reversion, weeks_, cooldown);
         string memory err = "none";
-        try collection.createBoardFor(SELLER, cfg) { }
+        try collection.createBoardFor(SELLER, abi.encode(cfg)) { }
         catch (bytes memory reason) {
             err = _termsErrorName(bytes4(reason));
         }
@@ -345,7 +355,7 @@ contract GenImageGridVectors is Script {
         cfg.kept = new ImageBoard.Rect[](2);
         cfg.kept[0] = _rect(10, 8, 2, 2); // stays the creator's
         cfg.kept[1] = _rect(4, 0, 2, 1); // given away below
-        (address created,) = collection.createBoardFor(SELLER, cfg);
+        (address created,) = collection.createBoardFor(SELLER, abi.encode(cfg));
         ImageBoard board = ImageBoard(created);
         _fund(board, B1);
         _fund(board, B2);
@@ -469,7 +479,7 @@ contract GenImageGridVectors is Script {
         ImageBoard.Config memory cfg = _config(125, 104, 10);
         cfg.cellPrice = 1_000_003;
         cfg.terms = ImageBoard.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_900, maxReversionWeeks: 2, cooldownSecs: 3_600 });
-        (address created,) = collection.createBoardFor(SELLER, cfg);
+        (address created,) = collection.createBoardFor(SELLER, abi.encode(cfg));
         ImageBoard board = ImageBoard(created);
         _fund(board, B1);
         _fund(board, B2);
@@ -492,7 +502,7 @@ contract GenImageGridVectors is Script {
 
     function _emitCaps() internal {
         // 2560 × 6000 at 10 px → 256 × 600.
-        (address created,) = collection.createBoardFor(SELLER, _config(2560, 6000, 10));
+        (address created,) = collection.createBoardFor(SELLER, abi.encode(_config(2560, 6000, 10)));
         ImageBoard board = ImageBoard(created);
         _fund(board, B1);
         ImageBoard.Rect[] memory ones = new ImageBoard.Rect[](130);
@@ -506,10 +516,10 @@ contract GenImageGridVectors is Script {
         vm.warp(block.timestamp + HOUR);
         _emitState(board);
 
-        _emitRect(board, _rect(0, 20, 128, 1)); // 128 blocks
-        _emitRect(board, _rect(0, 20, 129, 1)); // 129
+        _emitRect(board, _rect(0, 20, 88, 1)); // 88 blocks, the cap (2026-10-20: 128 before rentals)
+        _emitRect(board, _rect(0, 20, 89, 1)); // 89
         _emitRect(board, _rect(0, 20, 256, 2)); // 131, among free cells
-        _emitRect(board, _rect(0, 19, 128, 3)); // 128, among free cells
+        _emitRect(board, _rect(0, 19, 88, 3)); // 88, among free cells
         _emitRect(board, _rect(0, 0, 256, 16)); // 512 words
         _emitRect(board, _rect(0, 0, 256, 17)); // 544
         _emitRect(board, _rect(0, 0, 1, 512)); // a column of 512
@@ -519,20 +529,20 @@ contract GenImageGridVectors is Script {
         _emitRect(board, _rect(8, 0, 8, 512)); // aligned: one word a row
         _emitRect(board, _rect(8, 0, 8, 513));
 
-        _multiCase(board, _list(_rect(0, 20, 64, 1), _rect(64, 20, 64, 1))); // 128 across two
-        _multiCase(board, _list(_rect(0, 20, 64, 1), _rect(64, 20, 65, 1))); // 129 across two
+        _multiCase(board, _list(_rect(0, 20, 44, 1), _rect(44, 20, 44, 1))); // 88 across two
+        _multiCase(board, _list(_rect(0, 20, 44, 1), _rect(44, 20, 45, 1))); // 89 across two
         _multiCase(board, _list(_rect(0, 0, 256, 8), _rect(0, 8, 256, 8))); // 512 words across two
         _multiCase(board, _list(_rect(0, 0, 256, 8), _rect(0, 8, 256, 9))); // 544
         // The word cap is checked before the second rectangle's blocks are counted.
         _multiCase(board, _list(_rect(0, 30, 256, 16), _rect(0, 20, 1, 1)));
         // And after its overlap with the first.
         _multiCase(board, _list(_rect(0, 30, 256, 16), _rect(0, 30, 1, 1)));
-        // Blocks are counted across every rectangle: 43 + 43 + 43, and 43 + 43 + 42.
-        _multiCase(board, _list3(_rect(0, 20, 43, 1), _rect(43, 20, 43, 1), _rect(86, 20, 43, 1)));
-        _multiCase(board, _list3(_rect(0, 20, 43, 1), _rect(43, 20, 43, 1), _rect(86, 20, 42, 1)));
-        // ... once in each rectangle that meets them: the wide block in two is two of 129.
-        _multiCase(board, _list3(_rect(66, 20, 65, 1), _rect(131, 20, 1, 1), _rect(0, 20, 63, 1)));
-        _multiCase(board, _list3(_rect(66, 20, 65, 1), _rect(131, 20, 1, 1), _rect(0, 20, 62, 1)));
+        // Blocks are counted across every rectangle: 29 + 30 + 30, and 29 + 29 + 30.
+        _multiCase(board, _list3(_rect(0, 20, 29, 1), _rect(29, 20, 30, 1), _rect(59, 20, 30, 1)));
+        _multiCase(board, _list3(_rect(0, 20, 29, 1), _rect(29, 20, 29, 1), _rect(58, 20, 30, 1)));
+        // ... once in each rectangle that meets them: the wide block in two is two of 89.
+        _multiCase(board, _list3(_rect(66, 20, 65, 1), _rect(131, 20, 1, 1), _rect(0, 20, 23, 1)));
+        _multiCase(board, _list3(_rect(66, 20, 65, 1), _rect(131, 20, 1, 1), _rect(0, 20, 22, 1)));
     }
 
     // -----------------------------------------------------------------

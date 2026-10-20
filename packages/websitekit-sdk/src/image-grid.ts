@@ -24,7 +24,12 @@
  */
 import { BPS_DENOMINATOR, PricingOverflowError, SECONDS_PER_WEEK, computeTakePrice } from './pricing';
 
-/** Square cells, in the image's own pixels. */
+/**
+ * Square cells, in the image's own pixels: the contract takes any whole size from `MIN_CELL_SIZE` to
+ * `MAX_CELL_SIZE` (2026-10-20). `CELL_SIZES` are the ones a set-up screen usually offers.
+ */
+export const MIN_CELL_SIZE = 10;
+export const MAX_CELL_SIZE = 200;
 export const CELL_SIZES = [10, 15, 20] as const;
 export type CellSize = (typeof CELL_SIZES)[number];
 
@@ -42,7 +47,7 @@ export const CELLS_PER_WORD = 8;
  */
 export const MAX_WORDS_PER_BUY = 512;
 /** The contract's `MAX_BLOCKS_TAKEN_PER_BUY`: the most blocks one buy may take cells from, counted once per rectangle. */
-export const MAX_BLOCKS_TAKEN_PER_BUY = 128;
+export const MAX_BLOCKS_TAKEN_PER_BUY = 88;
 
 /** A board's `priceBps` before its holder lowers anything: every square at the price set at creation. */
 export const FULL_PRICE_BPS = 10_000;
@@ -124,7 +129,7 @@ export interface GridState {
  * fit left unsold. `InvalidConfig` is the contract's refusal, for the same inputs.
  */
 export function gridOf(width: number, height: number, cellSize: number): Grid | { error: 'InvalidConfig' } {
-  if (!(CELL_SIZES as readonly number[]).includes(cellSize)) return { error: 'InvalidConfig' };
+  if (!Number.isInteger(cellSize) || cellSize < MIN_CELL_SIZE || cellSize > MAX_CELL_SIZE) return { error: 'InvalidConfig' };
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 0 || height < 0) {
     return { error: 'InvalidConfig' };
   }

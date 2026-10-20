@@ -2,8 +2,11 @@
 pragma solidity 0.8.30;
 
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
+
+using ImageBoardReads for ImageBoard;
 /// @notice Zones (cells priced differently from `cellPrice`) and kept blocks (the creator's, made
 /// with the board), `IMAGE-BOARD-SPEC.md` §4a. Every rule at its boundary: a zone ending exactly on
 /// the grid's edge and one cell past it, zones that touch and zones that share one cell, a block one
@@ -43,7 +46,7 @@ contract ImageBoardZonesTest is ImageBoardBase {
 
     function _refused(ImageBoard.Config memory cfg, bytes4 err) internal {
         vm.expectRevert(err);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
     }
 
     // ---------------------------------------------------------------------
@@ -247,7 +250,7 @@ contract ImageBoardZonesTest is ImageBoardBase {
         emit BlockKept(2, seller, 29, 29, 1, 1);
         // The relayer pays for creation; the kept blocks are still the seller's.
         vm.prank(relayer);
-        (address b,) = collection.createBoardFor(seller, _kept());
+        (address b,) = collection.createBoardFor(seller, abi.encode(_kept()));
         _use(ImageBoard(b));
 
         assertEq(board.blockCount(), 2);

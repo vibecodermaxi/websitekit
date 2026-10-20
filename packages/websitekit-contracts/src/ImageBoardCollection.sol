@@ -6,7 +6,13 @@ import { ERC721 } from "solady/tokens/ERC721.sol";
 import { Ownable } from "solady/auth/Ownable.sol";
 import { LibString } from "solady/utils/LibString.sol";
 
-import { ImageBoard } from "./ImageBoard.sol";
+/// @notice What the collection asks of any board implementation, now or later: to be set up from
+/// bytes only it reads, and to say which token it settles in. Nothing else of a board's shape is
+/// fixed here, so a later implementation may take a different set-up (2026-10-20).
+interface IImageBoardInit {
+    function initialize(uint256 boardTokenId, address creator, bytes calldata config) external;
+    function settlementToken() external view returns (address);
+}
 
 /// @notice Every image board as one NFT, in one collection (decided 2026-10-09,
 /// `docs/IMAGE-BOARD-SPEC.md`). Creating a board clones one `ImageBoard` implementation and mints
@@ -17,15 +23,22 @@ import { ImageBoard } from "./ImageBoard.sol";
 /// `boardChanged` on every buy and edit, and this emits `MetadataUpdate` for its token. Only a
 /// registered board can — otherwise anyone could spam the signal for any token.
 ///
-/// **The owner's powers, and only these:** which settlement tokens NEW boards may use, and where
-/// token metadata is fetched from (`setBaseURI`, so the platform can move domains; it announces a
-/// refresh of every token). The owner has no reach into a board, its blocks or its money.
+/// **The owner's powers, and only these:** which settlement tokens NEW boards may use, which
+/// implementation NEW boards are cloned from (`setImplementation`, 2026-10-20), and where token
+/// metadata is fetched from (`setBaseURI`, so the platform can move domains; it announces a refresh
+/// of every token). The owner has no reach into an existing board, its blocks or its money: a
+/// board is a clone of the implementation it was created from, for good (`implementationOf`).
+///
+/// **Why the implementation can change for new boards** (2026-10-20): a board's code is fixed when
+/// it is cloned, so a feature added later can only ever reach boards created after it. Without
+/// this, every such feature would need a second collection — a second NFT collection on every
+/// marketplace, and boards split between them. The set-up a board takes is opaque bytes here, so a
+/// later implementation may take a different one.
 ///
 /// **Its name and symbol are the deployer's, not this source's** (2026-10-12): the protocol's
 /// bytecode names no product, as `SlotSite`'s name and symbol are `createSite` arguments. Both are
 /// fixed at deployment; there is no setter.
 ///
-/// Not frozen: a new collection can point at the same implementation.
 contract ImageBoardCollection is ERC721, Ownable {
     using LibString for uint256;
 
@@ -36,7 +49,8 @@ contract ImageBoardCollection is ERC721, Ownable {
     bytes4 internal constant INTERFACE_ID_ERC2981 = 0x2a55205a;
     bytes4 internal constant INTERFACE_ID_ERC4906 = 0x49064906;
 
-    address public immutable implementation;
+    /// @notice What the next board is cloned from. Changing it changes no existing board.
+    address public implementation;
     mapping(address => bool) public tokenAllowed;
     string public baseURI;
     string private _name;
@@ -48,15 +62,20 @@ contract ImageBoardCollection is ERC721, Ownable {
     mapping(address => uint256) public tokenOfBoard;
     /// @notice Who the board was created for — the royalty's recipient, whoever holds it later.
     mapping(uint256 => address) public creatorOf;
+    /// @notice The implementation a board was cloned from: its rules, for good.
+    mapping(uint256 => address) public implementationOf;
 
     error ZeroAddress();
     error TokenNotAllowed();
     error NotABoard();
     error EmptyName();
+    error NotAContract();
 
     event BoardCreated(address indexed seller, address indexed board, uint256 indexed tokenId, address creator);
     event TokenAllowed(address indexed token, bool allowed);
     event BaseURISet(string baseURI);
+    /// @notice New boards are cloned from `implementation` from now on. Existing boards are unchanged.
+    event ImplementationSet(address indexed implementation);
     /// ERC-4906.
     event MetadataUpdate(uint256 _tokenId);
     event BatchMetadataUpdate(uint256 _fromTokenId, uint256 _toTokenId);
@@ -69,12 +88,12 @@ contract ImageBoardCollection is ERC721, Ownable {
         address[] memory tokens,
         string memory baseURI_
     ) {
-        if (owner_ == address(0) || implementation_ == address(0)) revert ZeroAddress();
+        if (owner_ == address(0)) revert ZeroAddress();
         if (bytes(name_).length == 0 || bytes(symbol_).length == 0) revert EmptyName();
         _name = name_;
         _symbol = symbol_;
         _initializeOwner(owner_);
-        implementation = implementation_;
+        _setImplementation(implementation_);
         baseURI = baseURI_;
         for (uint256 i = 0; i < tokens.length; i++) {
             tokenAllowed[tokens[i]] = true;
@@ -96,19 +115,20 @@ contract ImageBoardCollection is ERC721, Ownable {
 
     /// @notice We deploy and pay; the seller owns the board's NFT having signed nothing. `seller` is
     /// explicit for that reason. `_mint`, not `_safeMint`: no callback into the seller mid-create.
-    function createBoardFor(address seller, ImageBoard.Config calldata cfg)
-        external
-        returns (address board, uint256 tokenId)
-    {
+    /// `config` is the current implementation's set-up, ABI-encoded; only the board reads it.
+    function createBoardFor(address seller, bytes calldata config) external returns (address board, uint256 tokenId) {
         if (seller == address(0)) revert ZeroAddress();
-        if (!tokenAllowed[cfg.settlementToken]) revert TokenNotAllowed();
         tokenId = ++boardCount;
-        board = Clones.clone(implementation);
+        address impl = implementation;
+        board = Clones.clone(impl);
         boardOf[tokenId] = board;
         tokenOfBoard[board] = tokenId;
         creatorOf[tokenId] = seller;
+        implementationOf[tokenId] = impl;
         // Same transaction, so no uninitialized clone exists for someone else to claim.
-        ImageBoard(board).initialize(tokenId, seller, cfg);
+        IImageBoardInit(board).initialize(tokenId, seller, config);
+        // Asked of the board once it is set up: the set-up's shape is the implementation's.
+        if (!tokenAllowed[IImageBoardInit(board).settlementToken()]) revert TokenNotAllowed();
         _mint(seller, tokenId);
         emit BoardCreated(seller, board, tokenId, msg.sender);
     }
@@ -122,8 +142,21 @@ contract ImageBoardCollection is ERC721, Ownable {
     }
 
     // ---------------------------------------------------------------------
-    // The owner's two powers
+    // The owner's three powers
     // ---------------------------------------------------------------------
+
+    /// @notice Boards created from now on are clones of `implementation_`; boards that exist keep
+    /// the one they were created from. Refuses an address with no code — zero included — which
+    /// would make every later create fail.
+    function setImplementation(address implementation_) external onlyOwner {
+        _setImplementation(implementation_);
+    }
+
+    function _setImplementation(address implementation_) internal {
+        if (implementation_.code.length == 0) revert NotAContract();
+        implementation = implementation_;
+        emit ImplementationSet(implementation_);
+    }
 
     function allowToken(address token, bool allowed) external onlyOwner {
         tokenAllowed[token] = allowed;

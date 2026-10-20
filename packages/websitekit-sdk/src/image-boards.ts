@@ -25,11 +25,12 @@
  * The twin needs the board's cell map (`readCellMap`) and its blocks to price that; `gridStateOf`
  * puts them together.
  */
-import { toFunctionSelector, type Abi, type Address, type Hex, type PublicClient } from 'viem';
+import { encodeAbiParameters, toFunctionSelector, type Abi, type Address, type Hex, type PublicClient } from 'viem';
 
 import imageBoardAbiJson from './abi/ImageBoard.json';
 import imageBoardCollectionAbiJson from './abi/ImageBoardCollection.json';
 import { cellMapFromBlocks, cellMapOf, gridOf, layoutProblem, termsError, type BlockErrorName, type CellMap, type GridState, type Rect, type TakeTerms, type Zone } from './image-grid';
+import { accruedOf, rentCost, rentSplit } from './rentals';
 import type { CallRequest } from './writes';
 
 export * from './image-grid';
@@ -71,8 +72,8 @@ export interface ImageBoardDeployment {
  */
 export const ROBINHOOD_TESTNET_IMAGE_BOARDS: ImageBoardDeployment = {
   chainId: 46630,
-  implementation: '0x626490ec8a3982238fe178d76da2a68f2df57888',
-  collection: '0xea60812cf6283745f1c9e455c6028d8042ae85e7',
+  implementation: '0xa6cfa3e406ff0d2e97fc6026ebc35a9c3e1d63f0',
+  collection: '0x2032e20f12d4c9e086ba497ad01da80d9e2f8f41',
   token: '0x20f5aa5b5a49571925ede3fc206347963ddba783',
   decimals: 6,
   mintable: true,
@@ -110,6 +111,12 @@ export const IMAGE_BOARD_ROYALTY_BPS = 500n;
 export const IMAGE_BOARD_SELLER_BPS = 10_000n - IMAGE_BOARD_PROTOCOL_BPS;
 /** What a block's resale pays whoever holds the board's NFT then: `ImageBoard.RESALE_ROYALTY_BPS`. */
 export const IMAGE_BLOCK_RESALE_ROYALTY_BPS = 500n;
+
+/** What a rental pays whoever holds the board's NFT then, beside the protocol's cut: `ImageBoard.RENT_ROYALTY_BPS`. */
+export const IMAGE_BLOCK_RENT_ROYALTY_BPS = 500n;
+/** The shortest and longest term a block can be rented for: `MIN_RENTAL_DURATION`, `MAX_RENTAL_TERM`. */
+export const IMAGE_BLOCK_MIN_RENTAL_SECS = 3_600n;
+export const IMAGE_BLOCK_MAX_RENTAL_SECS = 31_536_000n;
 
 /**
  * How a resale at `price` is credited — **a twin of the contract's `resaleSplit`**, for showing an
@@ -176,6 +183,31 @@ export interface BlockState extends Rect {
   boughtAt: bigint;
   /** How many of its cells no later block has taken. Its rectangle never changes; this does. */
   cellsLeft: number;
+  /**
+   * The picture the board shows for it now (2026-10-20): the tenant's during a live term once they
+   * have chosen one, the owner's `contentHash` otherwise. Everything that draws or serves a block
+   * reads THIS, never `contentHash`.
+   */
+  shownHash: Hex;
+  /** Its tenancy; `expiry` zero for none. A lapsed term stays here until the next one replaces it. */
+  rental: BlockRental;
+  /** Its rent offer; a `ratePerDay` of zero is none. */
+  rentListing: BlockRentListing;
+}
+
+/** A block's tenancy (`IMAGE-BOARD-SPEC.md` §12). `prepaid` is net of both cuts and streams to the owner. */
+export interface BlockRental {
+  tenant: Address;
+  start: bigint;
+  expiry: bigint;
+  prepaid: bigint;
+  claimed: bigint;
+  tenantHash: Hex;
+}
+
+export interface BlockRentListing {
+  ratePerDay: bigint;
+  maxDurationSecs: bigint;
 }
 
 /**
@@ -277,7 +309,7 @@ export async function readImageBoard(client: PublicClient, board: Address, opts:
  *  never sold. */
 export async function readBlock(client: PublicClient, board: Address, tokenId: bigint, opts: ReadAt = {}): Promise<BlockState> {
   const read = reader(client, board, opts);
-  const [shape, owner, editor, listPrice] = await Promise.all([
+  const [shape, owner, editor, listPrice, shownHash, rental, offer] = await Promise.all([
     read<{ col: number; row: number; cols: number; rows: number; version: number; level: bigint; boughtAt: number; cellsLeft: number; contentHash: Hex }>(
       'blockOf',
       [tokenId],
@@ -285,6 +317,9 @@ export async function readBlock(client: PublicClient, board: Address, tokenId: b
     read<Address>('ownerOf', [tokenId]),
     read<Address>('editorOf', [tokenId]),
     read<bigint>('listPrice', [tokenId]),
+    read<Hex>('shownHash', [tokenId]),
+    read<{ tenant: Address; start: number; expiry: number; prepaid: bigint; claimed: bigint; tenantHash: Hex }>('rentalOf', [tokenId]),
+    read<readonly [bigint, bigint]>('rentListing', [tokenId]),
   ]);
   return {
     tokenId,
@@ -300,6 +335,16 @@ export async function readBlock(client: PublicClient, board: Address, tokenId: b
     level: shape.level,
     boughtAt: BigInt(shape.boughtAt),
     cellsLeft: shape.cellsLeft,
+    shownHash,
+    rental: {
+      tenant: rental.tenant,
+      start: BigInt(rental.start),
+      expiry: BigInt(rental.expiry),
+      prepaid: rental.prepaid,
+      claimed: rental.claimed,
+      tenantHash: rental.tenantHash,
+    },
+    rentListing: { ratePerDay: offer[0], maxDurationSecs: BigInt(offer[1]) },
   };
 }
 
@@ -463,10 +508,62 @@ export interface CreateImageBoardOptions {
 }
 
 /**
+ * `ImageBoard.Config`, as `initialize` decodes it. Since 2026-10-20 the collection passes a board's
+ * set-up through as bytes it never reads — so a later implementation may take another shape — and
+ * the struct is no longer in any ABI. Written out here, and pinned by creating boards with zones,
+ * kept blocks and terms on real bytecode (the platform's anvil suite and the deploy's smoke).
+ */
+export const IMAGE_BOARD_CONFIG_PARAMS = [
+  {
+    type: 'tuple',
+    components: [
+      { name: 'settlementToken', type: 'address' },
+      { name: 'width', type: 'uint32' },
+      { name: 'height', type: 'uint32' },
+      { name: 'cellSize', type: 'uint8' },
+      { name: 'cellPrice', type: 'uint256' },
+      { name: 'imageHash', type: 'bytes32' },
+      {
+        name: 'zones',
+        type: 'tuple[]',
+        components: [
+          { name: 'col', type: 'uint16' },
+          { name: 'row', type: 'uint16' },
+          { name: 'cols', type: 'uint16' },
+          { name: 'rows', type: 'uint16' },
+          { name: 'cellPrice', type: 'uint192' },
+        ],
+      },
+      {
+        name: 'kept',
+        type: 'tuple[]',
+        components: [
+          { name: 'col', type: 'uint16' },
+          { name: 'row', type: 'uint16' },
+          { name: 'cols', type: 'uint16' },
+          { name: 'rows', type: 'uint16' },
+        ],
+      },
+      {
+        name: 'terms',
+        type: 'tuple',
+        components: [
+          { name: 'takeBps', type: 'uint256' },
+          { name: 'payoutBps', type: 'uint256' },
+          { name: 'reversionBps', type: 'uint256' },
+          { name: 'maxReversionWeeks', type: 'uint256' },
+          { name: 'cooldownSecs', type: 'uint256' },
+        ],
+      },
+    ],
+  },
+] as const;
+
+/**
  * `ImageBoardCollection.createBoardFor`. Refuses here what the contract would refuse, so a bad
  * config fails before anyone spends gas on a revert that names nothing.
  */
-export function buildCreateImageBoard(o: CreateImageBoardOptions): CallRequest<'createBoardFor', [Address, unknown]> {
+export function buildCreateImageBoard(o: CreateImageBoardOptions): CallRequest<'createBoardFor', [Address, Hex]> {
   if (o.seller === ZERO_ADDRESS) throw new Error('image board: the seller must be named');
   if (o.settlementToken === ZERO_ADDRESS) throw new Error('image board: settles in an ERC-20 only');
   if ('error' in gridOf(o.width, o.height, o.cellSize)) {
@@ -491,23 +588,25 @@ export function buildCreateImageBoard(o: CreateImageBoardOptions): CallRequest<'
     functionName: 'createBoardFor',
     args: [
       o.seller,
-      {
-        settlementToken: o.settlementToken,
-        width: o.width,
-        height: o.height,
-        cellSize: o.cellSize,
-        cellPrice: o.cellPrice,
-        imageHash: o.imageHash,
-        zones: o.zones.map((z) => ({ col: z.col, row: z.row, cols: z.cols, rows: z.rows, cellPrice: z.cellPrice })),
-        kept: o.kept.map((k) => ({ col: k.col, row: k.row, cols: k.cols, rows: k.rows })),
-        terms: {
-          takeBps: BigInt(o.terms.takeBps),
-          payoutBps: BigInt(o.terms.payoutBps),
-          reversionBps: BigInt(o.terms.reversionBps),
-          maxReversionWeeks: BigInt(o.terms.maxReversionWeeks),
-          cooldownSecs: BigInt(o.terms.cooldownSecs),
+      encodeAbiParameters(IMAGE_BOARD_CONFIG_PARAMS, [
+        {
+          settlementToken: o.settlementToken,
+          width: o.width,
+          height: o.height,
+          cellSize: o.cellSize,
+          cellPrice: o.cellPrice,
+          imageHash: o.imageHash,
+          zones: o.zones.map((z) => ({ col: z.col, row: z.row, cols: z.cols, rows: z.rows, cellPrice: z.cellPrice })),
+          kept: o.kept.map((k) => ({ col: k.col, row: k.row, cols: k.cols, rows: k.rows })),
+          terms: {
+            takeBps: BigInt(o.terms.takeBps),
+            payoutBps: BigInt(o.terms.payoutBps),
+            reversionBps: BigInt(o.terms.reversionBps),
+            maxReversionWeeks: BigInt(o.terms.maxReversionWeeks),
+            cooldownSecs: BigInt(o.terms.cooldownSecs),
+          },
         },
-      },
+      ]),
     ],
   };
 }
@@ -727,6 +826,97 @@ export function buildListBlock(o: { board: Address; tokenId: bigint; price: bigi
 
 export function buildDelistBlock(o: { board: Address; tokenId: bigint }): CallRequest<'delistBlock', [bigint]> {
   return { address: o.board, abi: IMAGE_BOARD_ABI, functionName: 'delistBlock', args: [o.tokenId] };
+}
+
+// ---------------------------------------------------------------------------
+// Renting (`IMAGE-BOARD-SPEC.md` §12, 2026-10-20): a term of a block, prepaid, streamed to its owner
+// ---------------------------------------------------------------------------
+
+/** Whether a tenancy is live at `now` (the chain's time, never the machine's): it ends AT `expiry`. */
+export function rentalLive(rental: Pick<BlockRental, 'expiry'>, now: bigint): boolean {
+  return now < rental.expiry;
+}
+
+/** Rent streamed to the owner and not yet credited: what `claimRent` would credit at `now`. */
+export function rentUnclaimed(rental: BlockRental, now: bigint): bigint {
+  return accruedOf(rental.prepaid, rental.start, rental.expiry, now) - rental.claimed;
+}
+
+/**
+ * What a term of `durationSecs` at `ratePerDay` costs and where it goes, composed as `rent` composes
+ * it: the page boards' `rentCost` and `rentSplit` with the protocol's 5% and the board holder's 5%.
+ */
+export function blockRentQuote(ratePerDay: bigint, durationSecs: bigint): { cost: bigint; protocolCut: bigint; royalty: bigint; net: bigint } {
+  const cost = rentCost(ratePerDay, durationSecs);
+  const { protocolCut, siteCut, net } = rentSplit(cost, IMAGE_BOARD_PROTOCOL_BPS, IMAGE_BLOCK_RENT_ROYALTY_BPS);
+  return { cost, protocolCut, royalty: siteCut, net };
+}
+
+function rentalTerm(durationSecs: bigint, longest: bigint = IMAGE_BLOCK_MAX_RENTAL_SECS): bigint {
+  if (durationSecs < IMAGE_BLOCK_MIN_RENTAL_SECS || durationSecs > longest) {
+    throw new Error(`image board: a term of ${durationSecs} s is outside an hour to ${longest} s`);
+  }
+  return durationSecs;
+}
+
+/** `listForRent`: offer the block at `ratePerDay` for terms up to `maxDurationSecs`; a rate of zero ends the offer. */
+export function buildListForRent(o: {
+  board: Address;
+  tokenId: bigint;
+  ratePerDay: bigint;
+  maxDurationSecs: bigint;
+}): CallRequest<'listForRent', [bigint, bigint, bigint]> {
+  if (o.ratePerDay < 0n) throw new Error('image board: a rate cannot be negative');
+  const longest = o.ratePerDay === 0n ? 0n : rentalTerm(o.maxDurationSecs);
+  return { address: o.board, abi: IMAGE_BOARD_ABI, functionName: 'listForRent', args: [o.tokenId, o.ratePerDay, longest] };
+}
+
+/**
+ * `rentWithPermit`: one signature (`permitTypedData` for exactly `blockRentQuote(rate, term).cost`)
+ * plus one transaction. `tenant` is named — whoever pays need not be them. `expectedRatePerDay` is
+ * the rate the payer was SHOWN; the contract refuses any other.
+ */
+export function buildRentBlockWithPermit(o: {
+  board: Address;
+  tokenId: bigint;
+  tenant: Address;
+  durationSecs: bigint;
+  expectedRatePerDay: bigint;
+  permit: PermitSignature;
+}): CallRequest<'rentWithPermit', [bigint, Address, bigint, bigint, bigint, number, Hex, Hex]> {
+  return {
+    address: o.board,
+    abi: IMAGE_BOARD_ABI,
+    functionName: 'rentWithPermit',
+    args: [o.tokenId, namedRecipient(o.tenant), rentalTerm(o.durationSecs), o.expectedRatePerDay, o.permit.deadline, o.permit.v, o.permit.r, o.permit.s],
+  };
+}
+
+/** `extendRentalWithPermit`: the tenant's term becomes `durationSecs` from now, at the current rate. */
+export function buildExtendRentalWithPermit(o: {
+  board: Address;
+  tokenId: bigint;
+  durationSecs: bigint;
+  expectedRatePerDay: bigint;
+  permit: PermitSignature;
+}): CallRequest<'extendRentalWithPermit', [bigint, bigint, bigint, bigint, number, Hex, Hex]> {
+  return {
+    address: o.board,
+    abi: IMAGE_BOARD_ABI,
+    functionName: 'extendRentalWithPermit',
+    args: [o.tokenId, rentalTerm(o.durationSecs), o.expectedRatePerDay, o.permit.deadline, o.permit.v, o.permit.r, o.permit.s],
+  };
+}
+
+/** `claimRent`: credits each block's owner what has streamed to them. Permissionless; pays only owners. */
+export function buildClaimRent(o: { board: Address; tokenIds: readonly bigint[] }): CallRequest<'claimRent', [readonly bigint[]]> {
+  if (o.tokenIds.length === 0) throw new Error('image board: name at least one block to claim rent for');
+  return { address: o.board, abi: IMAGE_BOARD_ABI, functionName: 'claimRent', args: [o.tokenIds] };
+}
+
+/** `editRented`: the tenant's picture for their term. The owner's picture is untouched. */
+export function buildEditRented(o: { board: Address; tokenId: bigint; contentHash: Hex }): CallRequest<'editRented', [bigint, Hex]> {
+  return { address: o.board, abi: IMAGE_BOARD_ABI, functionName: 'editRented', args: [o.tokenId, o.contentHash] };
 }
 
 /**

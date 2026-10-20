@@ -413,6 +413,13 @@ paid for each square sold and a share of each resale and take, and may lower the
 squares but never raise it. Squares can be priced by zone at creation, and a seller can keep areas
 for themselves. The terms of a take are chosen at creation and never change.
 
+A block's owner can also rent it out, at a daily rate up to a longest term, without selling it. The
+term is prepaid for a named tenant and streamed to whoever owns the block; 5% goes to the protocol
+and 5% to whoever holds the board. The tenant's picture is shown over the owner's until the term
+ends, by itself, and the owner's comes back. A take refunds the tenant for the squares taken; a sale
+of the block leaves the term running. Each board keeps the rules of the contract it was created
+from, for good: the collection can point only new boards at a later one.
+
 **Testnet only for now** (Robinhood Chain testnet, 46630). The contracts are
 `ImageBoard.sol` and `ImageBoardCollection.sol`, specified in
 [`IMAGE-BOARD-SPEC.md`](./IMAGE-BOARD-SPEC.md); the client is `@websitekit/sdk/image-boards`, whose

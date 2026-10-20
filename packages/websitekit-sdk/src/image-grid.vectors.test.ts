@@ -6,8 +6,8 @@
  * `out/image-grid-vectors.jsonl`. The source of truth is the contract, an END of the pin; this file
  * is the other end.
  *
- * **What the fixture pins**: grid derivation for 21 image sizes across all three cell sizes and both
- * limits; `layoutProblem` against what `initialize` refused for 20 sets of zones and kept blocks;
+ * **What the fixture pins**: grid derivation for 28 image sizes, at both ends of the cell-size range
+ * (2026-10-20) and both grid limits; `layoutProblem` against what `initialize` refused for 20 sets of zones and kept blocks;
  * `termsError` against what it refused for 19 sets of terms, at every clamp and one past it. Since
  * takeovers (2026-10-14): `blockError` and `quote` for every rectangle of nine shapes at every origin
  * (one past the grid in the first sweep) on a board with zones (one priced near 2^150), a kept block

@@ -65,7 +65,7 @@ abstract contract ImageBoardBase is Test {
     }
 
     function _create(ImageBoard.Config memory cfg) internal returns (ImageBoard) {
-        (address b,) = collection.createBoardFor(seller, cfg);
+        (address b,) = collection.createBoardFor(seller, abi.encode(cfg));
         return ImageBoard(b);
     }
 

@@ -3,9 +3,12 @@ pragma solidity 0.8.30;
 
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardCollection } from "../src/ImageBoardCollection.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
+
+using ImageBoardReads for ImageBoard;
 /// @notice `ImageBoard` against `docs/IMAGE-BOARD-SPEC.md`. The invariants live in
 /// `ImageBoard.invariant.t.sol`; this file pins each rule at its boundary.
 contract ImageBoardTest is ImageBoardBase {
@@ -32,14 +35,26 @@ contract ImageBoardTest is ImageBoardBase {
         assertEq(r20, 33);
     }
 
-    function test_onlyTenFifteenOrTwentyPixelCells() public {
-        ImageBoard.Config memory cfg = _config(300, 300, 12);
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        collection.createBoardFor(seller, cfg);
+    /// Any whole size from 10 to 200 (2026-10-20), each end allowed and one past it refused.
+    function test_cellsFromTenToTwoHundredPixels() public {
+        (uint16 cols, uint16 rows) = _create(_config(300, 300, 10)).gridSize();
+        assertEq(cols, 30);
+        (cols, rows) = _create(_config(300, 300, 12)).gridSize();
+        assertEq(cols, 25);
+        assertEq(rows, 25);
+        (cols, rows) = _create(_config(400, 400, 200)).gridSize();
+        assertEq(cols, 2);
+        assertEq(rows, 2);
+        assertEq(board.MIN_CELL_SIZE(), 10);
+        assertEq(board.MAX_CELL_SIZE(), 200);
 
-        cfg.cellSize = 5;
+        ImageBoard.Config memory cfg = _config(400, 400, 9);
         vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
+
+        cfg.cellSize = 201;
+        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        collection.createBoardFor(seller, abi.encode(cfg));
     }
 
     /// One storage word per row: 256 cells across is the limit, 257 is refused.
@@ -49,17 +64,17 @@ contract ImageBoardTest is ImageBoardBase {
 
         ImageBoard.Config memory cfg = _config(2570, 100, 10);
         vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
     }
 
     function test_anImageSmallerThanOneCellIsRefused() public {
         ImageBoard.Config memory narrow = _config(9, 100, 10);
         vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        collection.createBoardFor(seller, narrow);
+        collection.createBoardFor(seller, abi.encode(narrow));
 
         ImageBoard.Config memory short_ = _config(100, 9, 10);
         vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        collection.createBoardFor(seller, short_);
+        collection.createBoardFor(seller, abi.encode(short_));
     }
 
     /// 1,000 rows. The bound is on ROWS, not pixels: 10,009 px at 10 is still 1,000 rows, and
@@ -72,34 +87,34 @@ contract ImageBoardTest is ImageBoardBase {
 
         ImageBoard.Config memory cfg = _config(100, 10_010, 10);
         vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg = _config(100, 15_015, 15);
         vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
     }
 
     function test_aZeroPriceOrHashOrSellerIsRefused() public {
         ImageBoard.Config memory cfg = _config(300, 300, 10);
         cfg.cellPrice = 0;
         vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg = _config(300, 300, 10);
         cfg.imageHash = bytes32(0);
         vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg = _config(300, 300, 10);
         vm.expectRevert(ImageBoardCollection.ZeroAddress.selector);
-        collection.createBoardFor(address(0), cfg);
+        collection.createBoardFor(address(0), abi.encode(cfg));
     }
 
     function test_aTokenNotAllowedIsRefused() public {
         ImageBoard.Config memory cfg = _config(300, 300, 10);
         cfg.settlementToken = makeAddr("some other token");
         vm.expectRevert(ImageBoardCollection.TokenNotAllowed.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
     }
 
     function test_onlyTheCollectionOwnerChangesTheAllowlist() public {
@@ -111,13 +126,13 @@ contract ImageBoardTest is ImageBoardBase {
     function test_aBoardCannotBeInitializedTwice() public {
         ImageBoard.Config memory cfg = _config(300, 300, 10);
         vm.expectRevert(ImageBoard.AlreadyInitialized.selector);
-        board.initialize(1, seller, cfg);
+        board.initialize(1, seller, abi.encode(cfg));
     }
 
     function test_theImplementationCannotBeInitialized() public {
         ImageBoard.Config memory cfg = _config(300, 300, 10);
         vm.expectRevert(ImageBoard.AlreadyInitialized.selector);
-        implementation.initialize(1, seller, cfg);
+        implementation.initialize(1, seller, abi.encode(cfg));
     }
 
     // ---------------------------------------------------------------------
@@ -477,7 +492,7 @@ contract ImageBoardTest is ImageBoardBase {
         assertEq(board.boardTokenId(), 1);
         assertEq(board.seller(), seller);
 
-        (address second, uint256 id) = collection.createBoardFor(alice, _config(300, 300, 10));
+        (address second, uint256 id) = collection.createBoardFor(alice, abi.encode(_config(300, 300, 10)));
         assertEq(id, 2, "board tokens count from one");
         assertEq(collection.ownerOf(2), alice);
         assertEq(collection.boardOf(2), second);
@@ -488,7 +503,7 @@ contract ImageBoardTest is ImageBoardBase {
     /// The standing check: whoever pays gas to create is not who receives the board.
     function test_theBoardGoesToTheSellerNotTheCreator() public {
         vm.prank(relayer);
-        (, uint256 id) = collection.createBoardFor(alice, _config(300, 300, 10));
+        (, uint256 id) = collection.createBoardFor(alice, abi.encode(_config(300, 300, 10)));
         assertEq(collection.ownerOf(id), alice);
         assertEq(collection.balanceOf(relayer), 0);
         assertEq(collection.creatorOf(id), alice);
@@ -529,7 +544,7 @@ contract ImageBoardTest is ImageBoardBase {
         // A clone of the same implementation, initialized by someone else, is not one of ours.
         ImageBoard stray = ImageBoard(Clones.clone(address(implementation)));
         vm.prank(alice);
-        stray.initialize(1, alice, _config(300, 300, 10));
+        stray.initialize(1, alice, abi.encode(_config(300, 300, 10)));
         vm.prank(alice);
         vm.expectRevert(ImageBoardCollection.NotABoard.selector);
         collection.boardChanged();

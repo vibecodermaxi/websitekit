@@ -4,9 +4,12 @@ pragma solidity 0.8.30;
 import { Vm } from "forge-std/Vm.sol";
 import { stdStorage, StdStorage } from "forge-std/StdStorage.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { TermsLib } from "../src/TermsLib.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
+
+using ImageBoardReads for ImageBoard;
 /// @notice Takeovers (`IMAGE-BOARD-SPEC.md` §11, 2026-10-14): any cell may be bought, sold or not,
 /// except a kept one while the creator owns it and one still in its cooldown. Each rule at its
 /// boundary, the money to the unit, and the gas the caps are set from, measured cold.
@@ -310,22 +313,22 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         ImageBoard.Config memory cfg = _config(300, 300, 10);
         cfg.terms.payoutBps = 9_999;
         vm.expectRevert(TermsLib.PayoutBelowPrincipal.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg = _config(300, 300, 10);
         cfg.terms.takeBps = 12_000; // 11,500 + 500: nothing left for the board's holder
         vm.expectRevert(TermsLib.TakeBelowPayout.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg = _config(300, 300, 10);
         cfg.terms.cooldownSecs = 7 days + 1;
         vm.expectRevert(TermsLib.InvalidConfig.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg = _config(300, 300, 10);
         cfg.terms.reversionBps = 0;
         vm.expectRevert(TermsLib.InvalidReversion.selector);
-        collection.createBoardFor(seller, cfg);
+        collection.createBoardFor(seller, abi.encode(cfg));
     }
 
     function test_theTermsAreRecorded() public view {
@@ -405,6 +408,35 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         vm.warp(block.timestamp + 52 weeks);
         uint256 used = _measure(alice, _one(0, 0, 256, uint16(rows)));
         emit log_named_uint("worst take at both caps, gas", used);
+        assertLt(used, TX_CAP_WITH_HEADROOM);
+    }
+    /// The same take with every block it covers rented for a year, each to its own tenant (2026-10-20):
+    /// each tenancy is settled, refunded and restarted inside the buy, every refund a fresh balance —
+    /// the dearest take there is.
+    function test_gas_theWorstTakeOfRentedBlocksAtBothCaps() public {
+        _use(_mostZones());
+        uint256 blocks = board.MAX_BLOCKS_TAKEN_PER_BUY();
+        uint256 rows = board.MAX_WORDS_PER_BUY() / 32;
+        uint256 perRow = (blocks + rows - 1) / rows;
+        uint256 stride = 256 / perRow;
+        for (uint256 i = 0; i < blocks; i++) {
+            ImageBoard.Rect[] memory one = new ImageBoard.Rect[](1);
+            one[0] = ImageBoard.Rect(uint16((i % perRow) * stride), uint16(i / perRow), 1, 1);
+            address owner_ = address(uint160(0x10000 + i));
+            vm.prank(bob);
+            uint256 id = board.buyBlocks(owner_, one, type(uint256).max, block.timestamp);
+            vm.prank(owner_);
+            board.listForRent(id, 1_000_000, 365 days);
+            // A different tenant each, with nothing owed yet: every refund writes a fresh balance.
+            vm.prank(bob);
+            board.rent(id, address(uint160(0x20000 + i)), 365 days, 1_000_000);
+            // Put up for resale during the term too, so the take ends both offers as well.
+            vm.prank(owner_);
+            board.listBlock(id, 1_000_000);
+        }
+        vm.warp(block.timestamp + 52 weeks);
+        uint256 used = _measure(alice, _one(0, 0, 256, uint16(rows)));
+        emit log_named_uint("worst take of rented blocks at both caps, gas", used);
         assertLt(used, TX_CAP_WITH_HEADROOM);
     }
 }

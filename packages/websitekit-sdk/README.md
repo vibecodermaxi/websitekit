@@ -116,6 +116,26 @@ cover the rest: creating a board (`buildCreateImageBoard`, permissionless; the s
 signs nothing), writing a block's picture hash (`buildEditBlock`), editors, gifts, resale
 (`buildListBlock`, `buildBuyListedBlockWithPermit`) and lowering prices (`buildLowerPrices`).
 
+**Renting a block.** An owner offers a block at a daily rate, up to a longest term
+(`buildListForRent`; a rate of zero ends the offer). Anyone can rent it for a NAMED tenant — the
+payer need not be them — for a term from an hour to 365 days, prepaid by permit for exactly
+`blockRentQuote(rate, secs).cost` and at the rate they were shown (`buildRentBlockWithPermit`
+refuses another). 5% goes to the protocol and 5% to whoever holds the board then; the rest streams
+by the second to whoever owns the block. The tenant's picture is held apart from the owner's
+(`buildEditRented`) and shows until the term ends, by itself, with no transaction: anything that
+draws a block reads `readBlock(...).shownHash`, never `contentHash`. `buildExtendRentalWithPermit`
+restarts the term from now. Streamed rent is credited by `buildClaimRent(ids)`, which anyone may
+send and which pays only each block's owner; then it is withdrawn as any other credit.
+`rentalLive` and `rentUnclaimed` read a term at the chain's time. A take refunds the tenant for the
+squares taken and the term goes on over the rest; a take ends the rent offer; a rental starting ends
+a resale listing; a change of owner credits the old owner what streamed, and the term carries on.
+
+**A board keeps the rules it was created with.** The collection's owner can point NEW boards at a
+later implementation; an existing board never moves (`implementationOf`). `buildCreateImageBoard`
+encodes the set-up as bytes the collection does not read (`IMAGE_BOARD_CONFIG_PARAMS`), so a later
+implementation may take a different one. A square is any whole size from `MIN_CELL_SIZE` (10 px) to
+`MAX_CELL_SIZE` (200 px). One buy may take cells from at most `MAX_BLOCKS_TAKEN_PER_BUY` (88) blocks.
+
 **What the chain does not do:** draw the picture. A block stores a content hash; composing the
 board's picture from its blocks, and serving the collection's token metadata, is the job of whoever
 hosts the board. A board created straight through the collection gets its NFT, but its metadata is

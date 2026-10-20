@@ -2,8 +2,11 @@
 pragma solidity 0.8.30;
 
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
+
+using ImageBoardReads for ImageBoard;
 /// @notice Lowering the price of unsold squares (`IMAGE-BOARD-SPEC.md` §2a, 2026-10-11): the board
 /// NFT's holder alone, only ever down, every price on the board alike, a block's whole price scaled
 /// and rounded up.

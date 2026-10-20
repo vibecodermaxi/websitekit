@@ -14,8 +14,9 @@
  * protocol's source names no product (2026-10-12), as `SlotSite`'s are `createSite` arguments.
  *
  * **`IMAGE_BOARD_BASE_URI` is where marketplaces fetch each board's metadata**: `tokenURI(n)` is it
- * plus `n`. The owner can move it later (`setBaseURI`, which announces a refresh of every token) —
- * the collection owner's one power besides the token allowlist.
+ * plus `n`. The owner can move it later (`setBaseURI`, which announces a refresh of every token).
+ * The owner's other powers: the token allowlist, and which implementation NEW boards are cloned from
+ * (`setImplementation`, 2026-10-20) — existing boards never change.
  *
  * **The protocol's terms are READ, not configured.** `protocolBps` and `protocolTreasury` are
  * immutables of the `SlotSite` implementation behind `WEBSITEKIT_FACTORY`, and the image-board
@@ -38,12 +39,13 @@
  * **Verify both contracts on Blockscout afterwards**, so every board cloned from the implementation
  * has a readable contract page. The commands are printed at the end.
  */
-import { formatEther, formatUnits, keccak256, toFunctionSelector, toHex, type Abi, type Address, type Hex } from 'viem';
+import { encodeAbiParameters, formatEther, formatUnits, keccak256, toFunctionSelector, toHex, type Abi, type Address, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { IMAGE_BOARD_CONFIG_PARAMS } from '../src/image-boards';
 import { ROBINHOOD_MAINNET_USDG } from '../src/settlement';
 import {
   activeChain,
@@ -158,7 +160,7 @@ const balance = await publicClient.getBalance({ address: deployer.address });
 console.log(`\n${describeChain()}`);
 console.log(`deployer          ${deployer.address} — ${formatEther(balance)} ETH`);
 console.log(`collection        "${collectionName}" (${collectionSymbol})`);
-console.log(`collection owner  ${owner} (allowToken and setBaseURI only; no reach into any board)`);
+console.log(`collection owner  ${owner} (allowToken, setImplementation for new boards and setBaseURI; no reach into an existing board)`);
 console.log(`metadata base     ${baseURI}<token>`);
 console.log(`protocol terms    ${protocolBps} bps to ${protocolTreasury}, read from SlotSite ${siteImplementation}\n`);
 if (balance === 0n) throw new Error('deployer has no balance');
@@ -234,19 +236,22 @@ console.log(`  read back            ${recBps} bps → ${recTreasury}; collection
 if (activeChain.testnet) {
   const createArgs = [
     deployer.address,
-    {
-      settlementToken: token,
-      width: 300,
-      height: 671,
-      cellSize: 10,
-      cellPrice: 10_000n,
-      imageHash: keccak256(toHex('deploy smoke')),
-      // A dear 2×2 zone at the top-left, and the bottom-right square kept by the deployer.
-      zones: [{ col: 0, row: 0, cols: 2, rows: 2, cellPrice: 20_000n }],
-      kept: [{ col: 29, row: 66, cols: 1, rows: 1 }],
-      // The Standard profile with no cooldown, so the smoke can take a block it has just sold.
-      terms: { takeBps: 14_000n, payoutBps: 11_500n, reversionBps: 9_700n, maxReversionWeeks: 52n, cooldownSecs: 0n },
-    },
+    // The set-up is bytes the collection passes through to the board (2026-10-20).
+    encodeAbiParameters(IMAGE_BOARD_CONFIG_PARAMS, [
+      {
+        settlementToken: token,
+        width: 300,
+        height: 671,
+        cellSize: 10,
+        cellPrice: 10_000n,
+        imageHash: keccak256(toHex('deploy smoke')),
+        // A dear 2×2 zone at the top-left, and the bottom-right square kept by the deployer.
+        zones: [{ col: 0, row: 0, cols: 2, rows: 2, cellPrice: 20_000n }],
+        kept: [{ col: 29, row: 66, cols: 1, rows: 1 }],
+        // The Standard profile with no cooldown, so the smoke can take a block it has just sold.
+        terms: { takeBps: 14_000n, payoutBps: 11_500n, reversionBps: 9_700n, maxReversionWeeks: 52n, cooldownSecs: 0n },
+      },
+    ]),
   ] as const;
   const { result } = await publicClient.simulateContract({
     address: collection,
@@ -261,20 +266,26 @@ if (activeChain.testnet) {
   if (!same(nftHolder, deployer.address)) throw new Error(`smoke board's NFT is held by ${nftHolder}`);
   const uri = await read<string>(collection, collectionArt.abi, 'tokenURI', [boardToken]);
   if (uri !== `${baseURI}${boardToken}`) throw new Error(`smoke board's tokenURI is ${uri}`);
-  const grid = await read<[number, number]>(board, boardArt.abi, 'gridSize');
+  // Which code the board runs is recorded per board (2026-10-20): the collection can move NEW boards on.
+  const clonedFrom = await read<Address>(collection, collectionArt.abi, 'implementationOf', [boardToken]);
+  if (!same(clonedFrom, implementation)) throw new Error(`smoke board was cloned from ${clonedFrom}`);
+  const grid = [await read<number>(board, boardArt.abi, 'gridCols'), await read<number>(board, boardArt.abi, 'gridRows')];
   if (grid[0] !== 30 || grid[1] !== 67) throw new Error(`smoke board grid is ${grid}, not 30×67`);
 
   const kept = await read<Address>(board, boardArt.abi, 'ownerOf', [1n]);
   if (!same(kept, deployer.address)) throw new Error(`smoke board's kept block is held by ${kept}, not the creator`);
   // One row in the zone, one below it: two cells at 20,000 and two at the base 10,000.
-  const across = await read<bigint>(board, boardArt.abi, 'quote', [0, 1, 2, 2]);
+  // `quoteBlocks` of one area: the board carries no single-area read since rentals (2026-10-20).
+  const quoteOne = (col: number, row: number, cols: number, rows: number) =>
+    read<bigint>(board, boardArt.abi, 'quoteBlocks', [[{ col, row, cols, rows }]]);
+  const across = await quoteOne(0, 1, 2, 2);
   if (across !== 60_000n) throw new Error(`smoke quote across the zone is ${across}, not 60,000`);
   // The board's holder (the deployer) lowers prices to half: the same block is now 30,000, and one
   // base square 5,000. Then two areas in one buy, by permit, at the lowered price.
   await write('lowerPrices', board, boardArt.abi, 'lowerPrices', [5_000n]);
-  const halved = await read<bigint>(board, boardArt.abi, 'quote', [0, 1, 2, 2]);
+  const halved = await quoteOne(0, 1, 2, 2);
   if (halved !== 30_000n) throw new Error(`smoke quote after lowering to half is ${halved}, not 30,000`);
-  const total = halved + (await read<bigint>(board, boardArt.abi, 'quote', [5, 5, 1, 1]));
+  const total = halved + (await quoteOne(5, 5, 1, 1));
   if (total !== 35_000n) throw new Error(`smoke total for two areas is ${total}, not 35,000`);
   await write('mint', token, usdArt.abi, 'mint', [deployer.address, total]);
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
@@ -315,6 +326,25 @@ if (activeChain.testnet) {
   const left = await read<{ cellsLeft: number }>(board, boardArt.abi, 'blockOf', [3n]);
   if (left.cellsLeft !== 0) throw new Error(`block 3 has ${left.cellsLeft} cells left, not 0`);
   console.log(`  smoke take           block 3's cell taken for ${formatUnits(take, 6)}; its owner credited ${formatUnits(paidOut, 6)}; the kept square refused (gas ${takeReceipt.gasUsed})`);
+
+  // A rental (2026-10-20): the deployer offers its kept block and rents it for the taker for an hour,
+  // by permit; the taker's picture is shown, the owner's untouched.
+  const rate = 1_000_008n; // a day; an hour of it is 41,667
+  await write('listForRent', board, boardArt.abi, 'listForRent', [1n, rate, 86_400n]);
+  const cost = (rate * 3_600n) / 86_400n;
+  await write('mint', token, usdArt.abi, 'mint', [deployer.address, cost]);
+  const rentPermit = await signPermit(deployer, token, board, cost, deadline);
+  const protocolBefore = await read<bigint>(board, boardArt.abi, 'pendingWithdrawals', [protocolTreasury]);
+  const rentReceipt = await write('rentWithPermit', board, boardArt.abi, 'rentWithPermit', [
+    1n, recipient, 3_600n, rate, deadline, rentPermit.v, rentPermit.r, rentPermit.s,
+  ]);
+  const tenancy = await read<{ tenant: Address; prepaid: bigint }>(board, boardArt.abi, 'rentalOf', [1n]);
+  if (!same(tenancy.tenant, recipient)) throw new Error(`the smoke rental's tenant is ${tenancy.tenant}`);
+  const rentCut = (await read<bigint>(board, boardArt.abi, 'pendingWithdrawals', [protocolTreasury])) - protocolBefore;
+  if (rentCut !== (cost * protocolBps) / 10_000n || tenancy.prepaid !== cost - 2n * rentCut) {
+    throw new Error(`the smoke rental split ${cost} as ${rentCut} to the protocol and ${tenancy.prepaid} escrowed`);
+  }
+  console.log(`  smoke rental         kept block rented for an hour for ${formatUnits(cost, 6)} by permit → ${recipient}; 5% + 5% credited, the rest escrowed (gas ${rentReceipt.gasUsed})`);
 }
 
 console.log(`

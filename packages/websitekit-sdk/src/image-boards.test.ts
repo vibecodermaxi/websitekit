@@ -1,16 +1,25 @@
 import { readFileSync } from 'node:fs';
 
-import { decodeFunctionData, encodeFunctionData, keccak256, toHex, type Address, type Hex } from 'viem';
+import { decodeAbiParameters, decodeFunctionData, encodeFunctionData, keccak256, toHex, type Address, type Hex } from 'viem';
 import { describe, expect, it } from 'vitest';
 
 import {
   IMAGE_BOARD_ABI,
   BOARD_DOMAIN_NAME,
   IMAGE_BOARD_COLLECTION_ABI,
+  IMAGE_BOARD_CONFIG_PARAMS,
   blockEditorGrantTypedData,
   buildBuyBlocks,
   buildBuyBlocksWithPermit,
   buildCreateImageBoard,
+  blockRentQuote,
+  buildClaimRent,
+  buildEditRented,
+  buildExtendRentalWithPermit,
+  buildListForRent,
+  buildRentBlockWithPermit,
+  rentalLive,
+  rentUnclaimed,
   buildLowerPrices,
   buildEditBlock,
   buildImageBoardWithdrawFor,
@@ -43,6 +52,11 @@ function roundTrip(request: { abi: readonly unknown[]; functionName: string; arg
   return decodeFunctionData({ abi: request.abi, data } as never);
 }
 
+/** The board's set-up, which `createBoardFor` carries as bytes the collection never reads. */
+function configOf(decoded: { args?: readonly unknown[] }) {
+  return decodeAbiParameters(IMAGE_BOARD_CONFIG_PARAMS, decoded.args?.[1] as Hex)[0];
+}
+
 function createOptions(overrides: Partial<CreateImageBoardOptions> = {}): CreateImageBoardOptions {
   return {
     collection: COLLECTION,
@@ -68,13 +82,16 @@ describe('buildCreateImageBoard', () => {
     const decoded = roundTrip(request);
     expect(decoded.functionName).toBe('createBoardFor');
     expect(decoded.args?.[0]).toBe(SELLER);
-    expect(decoded.args?.[1]).toMatchObject({ width: 300, height: 671, cellSize: 10, cellPrice: 10_003n, settlementToken: TOKEN });
+    expect(configOf(decoded)).toMatchObject({ width: 300, height: 671, cellSize: 10, cellPrice: 10_003n, settlementToken: TOKEN });
   });
 
   it('refuses before sending what the contract would refuse', () => {
     expect(() => buildCreateImageBoard(createOptions({ seller: ZERO }))).toThrow(/seller/);
     expect(() => buildCreateImageBoard(createOptions({ settlementToken: ZERO }))).toThrow(/ERC-20/);
-    expect(() => buildCreateImageBoard(createOptions({ cellSize: 12 }))).toThrow(/grid/);
+    expect(() => buildCreateImageBoard(createOptions({ cellSize: 9 }))).toThrow(/grid/);
+    expect(() => buildCreateImageBoard(createOptions({ cellSize: 201 }))).toThrow(/grid/);
+    // Any whole size in the range, not only the three a set-up screen offers (2026-10-20).
+    expect(configOf(roundTrip(buildCreateImageBoard(createOptions({ cellSize: 12 }))))).toMatchObject({ cellSize: 12 });
     expect(() => buildCreateImageBoard(createOptions({ height: 10_010 }))).toThrow(/grid/);
     expect(() => buildCreateImageBoard(createOptions({ cellPrice: 0n }))).toThrow(/price/);
     expect(() => buildCreateImageBoard(createOptions({ imageHash: `0x${'0'.repeat(64)}` as Hex }))).toThrow(/hash/);
@@ -84,7 +101,7 @@ describe('buildCreateImageBoard', () => {
     const zones = [{ col: 0, row: 0, cols: 4, rows: 3, cellPrice: 30_011n }];
     const kept = [{ col: 10, row: 10, cols: 2, rows: 2 }];
     const decoded = roundTrip(buildCreateImageBoard(createOptions({ zones, kept })));
-    expect(decoded.args?.[1]).toMatchObject({ zones, kept });
+    expect(configOf(decoded)).toMatchObject({ zones, kept });
   });
 
   it('refuses a layout the contract would refuse, and a zone price that would not encode', () => {
@@ -97,7 +114,7 @@ describe('buildCreateImageBoard', () => {
 
   it('carries the terms through the ABI', () => {
     const decoded = roundTrip(buildCreateImageBoard(createOptions()));
-    expect(decoded.args?.[1]).toMatchObject({
+    expect(configOf(decoded)).toMatchObject({
       terms: { takeBps: 14_000n, payoutBps: 11_500n, reversionBps: 9_700n, maxReversionWeeks: 52n, cooldownSecs: 3_600n },
     });
   });
@@ -268,5 +285,46 @@ describe('resaleSplit', () => {
 
   it('takes the protocol cut at its own rate, not the royalty’s', () => {
     expect(resaleSplit(1_000_003n, 300n)).toEqual({ protocolCut: 30_000n, royalty: 50_000n, toOwner: 920_003n });
+  });
+});
+
+describe('renting a block (2026-10-20)', () => {
+  const permit = { deadline: 1_900_000_000n, v: 27, r: `0x${'11'.repeat(32)}` as Hex, s: `0x${'22'.repeat(32)}` as Hex };
+
+  it('quotes a term as the contract books it: 5% each to the protocol and the holder, truncated, the rest escrowed', () => {
+    // 1,000,003 a day for 36 hours: 1,500,004.5 → 1,500,004; 5% of it is 75,000.2 → 75,000 each.
+    expect(blockRentQuote(1_000_003n, 129_600n)).toEqual({ cost: 1_500_004n, protocolCut: 75_000n, royalty: 75_000n, net: 1_350_004n });
+    const q = blockRentQuote(7n, 3_600n); // a sub-unit term truncates to nothing, as on chain
+    expect(q).toEqual({ cost: 0n, protocolCut: 0n, royalty: 0n, net: 0n });
+  });
+
+  it('encodes each call with the tenant named and the term inside an hour to a year', () => {
+    const rent = roundTrip(buildRentBlockWithPermit({ board: BOARD, tokenId: 3n, tenant: SELLER, durationSecs: 86_400n, expectedRatePerDay: 9n, permit }));
+    expect(rent.functionName).toBe('rentWithPermit');
+    expect(rent.args).toEqual([3n, SELLER, 86_400n, 9n, permit.deadline, 27, permit.r, permit.s]);
+    expect(roundTrip(buildExtendRentalWithPermit({ board: BOARD, tokenId: 3n, durationSecs: 3_600n, expectedRatePerDay: 9n, permit })).functionName).toBe(
+      'extendRentalWithPermit',
+    );
+    expect(roundTrip(buildListForRent({ board: BOARD, tokenId: 3n, ratePerDay: 9n, maxDurationSecs: 31_536_000n })).args).toEqual([3n, 9n, 31_536_000n]);
+    expect(roundTrip(buildListForRent({ board: BOARD, tokenId: 3n, ratePerDay: 0n, maxDurationSecs: 99n })).args).toEqual([3n, 0n, 0n]);
+    expect(roundTrip(buildClaimRent({ board: BOARD, tokenIds: [1n, 4n] })).args).toEqual([[1n, 4n]]);
+    expect(roundTrip(buildEditRented({ board: BOARD, tokenId: 3n, contentHash: `0x${'ab'.repeat(32)}` as Hex })).functionName).toBe('editRented');
+  });
+
+  it('refuses before sending what the contract would refuse', () => {
+    const base = { board: BOARD, tokenId: 3n, tenant: SELLER, expectedRatePerDay: 9n, permit };
+    expect(() => buildRentBlockWithPermit({ ...base, durationSecs: 3_599n })).toThrow(/term/);
+    expect(() => buildRentBlockWithPermit({ ...base, durationSecs: 31_536_001n })).toThrow(/term/);
+    expect(() => buildRentBlockWithPermit({ ...base, durationSecs: 3_600n, tenant: ZERO })).toThrow(/named/);
+    expect(() => buildListForRent({ board: BOARD, tokenId: 3n, ratePerDay: 9n, maxDurationSecs: 31_536_001n })).toThrow(/term/);
+    expect(() => buildClaimRent({ board: BOARD, tokenIds: [] })).toThrow(/at least one/);
+  });
+
+  it('ends a term AT its expiry, and streams linearly to it', () => {
+    const rental = { tenant: SELLER, start: 1_000n, expiry: 1_100n, prepaid: 1_000n, claimed: 200n, tenantHash: `0x${'00'.repeat(32)}` as Hex };
+    expect(rentalLive(rental, 1_099n)).toBe(true);
+    expect(rentalLive(rental, 1_100n)).toBe(false);
+    expect(rentUnclaimed(rental, 1_050n)).toBe(300n); // 500 streamed, 200 already credited
+    expect(rentUnclaimed(rental, 9_999n)).toBe(800n); // stops at the end
   });
 });

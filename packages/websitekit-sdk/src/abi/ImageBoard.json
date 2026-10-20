@@ -43,6 +43,32 @@
   },
   {
     "type": "function",
+    "name": "MAX_CELL_SIZE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_RENTAL_TERM",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_WORDS_PER_BUY",
     "inputs": [],
     "outputs": [
@@ -57,6 +83,45 @@
   {
     "type": "function",
     "name": "MAX_ZONES",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_CELL_SIZE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_RENTAL_DURATION",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "RENT_ROYALTY_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -89,40 +154,6 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "blockError",
-    "inputs": [
-      {
-        "name": "col",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "row",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "cols",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "rows",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes4",
-        "internalType": "bytes4"
       }
     ],
     "stateMutability": "view"
@@ -511,6 +542,19 @@
   },
   {
     "type": "function",
+    "name": "claimRent",
+    "inputs": [
+      {
+        "name": "blockIds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "collection",
     "inputs": [],
     "outputs": [
@@ -581,6 +625,24 @@
   },
   {
     "type": "function",
+    "name": "editRented",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "contentHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "editorNonces",
     "inputs": [
       {
@@ -619,6 +681,72 @@
   },
   {
     "type": "function",
+    "name": "extendRental",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "durationSecs",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "expectedRatePerDay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "extendRentalWithPermit",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "durationSecs",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "expectedRatePerDay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "permitDeadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "v",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "r",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "s",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "freeCells",
     "inputs": [],
     "outputs": [
@@ -650,24 +778,6 @@
     "outputs": [
       {
         "name": "",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "gridSize",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "cols",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "rows",
         "type": "uint16",
         "internalType": "uint16"
       }
@@ -715,132 +825,9 @@
         "internalType": "address"
       },
       {
-        "name": "cfg",
-        "type": "tuple",
-        "internalType": "struct ImageBoard.Config",
-        "components": [
-          {
-            "name": "settlementToken",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "width",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "height",
-            "type": "uint32",
-            "internalType": "uint32"
-          },
-          {
-            "name": "cellSize",
-            "type": "uint8",
-            "internalType": "uint8"
-          },
-          {
-            "name": "cellPrice",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "imageHash",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "zones",
-            "type": "tuple[]",
-            "internalType": "struct ImageBoard.Zone[]",
-            "components": [
-              {
-                "name": "col",
-                "type": "uint16",
-                "internalType": "uint16"
-              },
-              {
-                "name": "row",
-                "type": "uint16",
-                "internalType": "uint16"
-              },
-              {
-                "name": "cols",
-                "type": "uint16",
-                "internalType": "uint16"
-              },
-              {
-                "name": "rows",
-                "type": "uint16",
-                "internalType": "uint16"
-              },
-              {
-                "name": "cellPrice",
-                "type": "uint192",
-                "internalType": "uint192"
-              }
-            ]
-          },
-          {
-            "name": "kept",
-            "type": "tuple[]",
-            "internalType": "struct ImageBoard.Rect[]",
-            "components": [
-              {
-                "name": "col",
-                "type": "uint16",
-                "internalType": "uint16"
-              },
-              {
-                "name": "row",
-                "type": "uint16",
-                "internalType": "uint16"
-              },
-              {
-                "name": "cols",
-                "type": "uint16",
-                "internalType": "uint16"
-              },
-              {
-                "name": "rows",
-                "type": "uint16",
-                "internalType": "uint16"
-              }
-            ]
-          },
-          {
-            "name": "terms",
-            "type": "tuple",
-            "internalType": "struct ImageBoard.Terms",
-            "components": [
-              {
-                "name": "takeBps",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "payoutBps",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "reversionBps",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "maxReversionWeeks",
-                "type": "uint256",
-                "internalType": "uint256"
-              },
-              {
-                "name": "cooldownSecs",
-                "type": "uint256",
-                "internalType": "uint256"
-              }
-            ]
-          }
-        ]
+        "name": "config",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [],
@@ -872,6 +859,29 @@
         "name": "price",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "listForRent",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "ratePerDay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxDurationSecs",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "outputs": [],
@@ -1014,40 +1024,6 @@
   },
   {
     "type": "function",
-    "name": "quote",
-    "inputs": [
-      {
-        "name": "col",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "row",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "cols",
-        "type": "uint16",
-        "internalType": "uint16"
-      },
-      {
-        "name": "rows",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "quoteBlocks",
     "inputs": [
       {
@@ -1083,6 +1059,157 @@
         "name": "total",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "rent",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tenant",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "durationSecs",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "expectedRatePerDay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "rentListing",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "ratePerDay",
+        "type": "uint192",
+        "internalType": "uint192"
+      },
+      {
+        "name": "maxDurationSecs",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "rentWithPermit",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tenant",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "durationSecs",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "expectedRatePerDay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "permitDeadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "v",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "r",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "s",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "rentalOf",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ImageBoard.Rental",
+        "components": [
+          {
+            "name": "tenant",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "start",
+            "type": "uint40",
+            "internalType": "uint40"
+          },
+          {
+            "name": "expiry",
+            "type": "uint40",
+            "internalType": "uint40"
+          },
+          {
+            "name": "prepaid",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "claimed",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "tenantHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -1125,25 +1252,6 @@
         "name": "",
         "type": "uint16",
         "internalType": "uint16"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "rowBits",
-    "inputs": [
-      {
-        "name": "row",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "bits",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -1216,6 +1324,25 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "shownHash",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -1504,6 +1631,43 @@
   },
   {
     "type": "event",
+    "name": "BlockRented",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tenant",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "expiry",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "cost",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "BlockResold",
     "inputs": [
       {
@@ -1708,6 +1872,124 @@
   },
   {
     "type": "event",
+    "name": "RentClaimed",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RentListed",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "ratePerDay",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxDurationSecs",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RentRefunded",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tenant",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "cells",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RentalExtended",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tenant",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "expiry",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "cost",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Withdrawn",
     "inputs": [
       {
@@ -1840,7 +2122,17 @@
   },
   {
     "type": "error",
+    "name": "NotForRent",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotListed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotTenant",
     "inputs": []
   },
   {
@@ -1875,7 +2167,22 @@
   },
   {
     "type": "error",
+    "name": "RateChanged",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RentalActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RentalExpired",
     "inputs": []
   },
   {
@@ -1913,6 +2220,11 @@
   {
     "type": "error",
     "name": "TakeTooHigh",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TermTooLong",
     "inputs": []
   },
   {

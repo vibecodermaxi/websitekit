@@ -38,9 +38,12 @@ describe('gridOf', () => {
     expect(gridOf(19, 19, 10)).toEqual({ cols: 1, rows: 1 });
   });
 
-  it('refuses a cell size that is not 10, 15 or 20', () => {
-    expect(gridOf(300, 300, 12)).toEqual({ error: 'InvalidConfig' });
-    expect(gridOf(300, 300, 5)).toEqual({ error: 'InvalidConfig' });
+  it('takes any whole cell size from 10 to 200, and nothing outside it (2026-10-20)', () => {
+    expect(gridOf(300, 300, 12)).toEqual({ cols: 25, rows: 25 });
+    expect(gridOf(400, 400, 200)).toEqual({ cols: 2, rows: 2 });
+    expect(gridOf(300, 300, 9)).toEqual({ error: 'InvalidConfig' });
+    expect(gridOf(300, 300, 201)).toEqual({ error: 'InvalidConfig' });
+    expect(gridOf(300, 300, 12.5)).toEqual({ error: 'InvalidConfig' });
   });
 
   it('allows 256 across and 1,000 down, and not one more', () => {
@@ -195,19 +198,19 @@ describe('buyError', () => {
     expect(blockError(board([keptFirst, coolingSecond], { keptCount: 1 }), at(0, 0, 2, 1), T0 + WEEK)).toBe('CellsKept');
   });
 
-  it('allows taking from 128 blocks in a buy and refuses one more, counted per rectangle', () => {
+  it('allows taking from 88 blocks in a buy and refuses one more, counted per rectangle', () => {
     const grid = { cols: 256, rows: 2 };
     const ones = Array.from({ length: 130 }, (_, i) => ({ rect: at(i, 0), owner: A }));
     const s = board(ones, { grid });
     const later = T0 + HOUR;
-    expect(blockError(s, at(0, 0, 128, 1), later)).toBe('none');
-    expect(blockError(s, at(0, 0, 129, 1), later)).toBe('TooManyBlocks');
-    expect(buyError(s, [at(0, 0, 64, 1), at(64, 0, 64, 1)], later)).toBe('none');
-    expect(buyError(s, [at(0, 0, 64, 1), at(64, 0, 65, 1)], later)).toBe('TooManyBlocks');
-    expect(buyError(s, [at(0, 0, 43, 1), at(43, 0, 43, 1), at(86, 0, 43, 1)], later)).toBe('TooManyBlocks');
-    expect(buyError(s, [at(0, 0, 43, 1), at(43, 0, 43, 1), at(86, 0, 42, 1)], later)).toBe('none');
+    expect(blockError(s, at(0, 0, 88, 1), later)).toBe('none');
+    expect(blockError(s, at(0, 0, 89, 1), later)).toBe('TooManyBlocks');
+    expect(buyError(s, [at(0, 0, 44, 1), at(44, 0, 44, 1)], later)).toBe('none');
+    expect(buyError(s, [at(0, 0, 44, 1), at(44, 0, 45, 1)], later)).toBe('TooManyBlocks');
+    expect(buyError(s, [at(0, 0, 29, 1), at(29, 0, 30, 1), at(59, 0, 30, 1)], later)).toBe('TooManyBlocks');
+    expect(buyError(s, [at(0, 0, 29, 1), at(29, 0, 29, 1), at(58, 0, 30, 1)], later)).toBe('none');
     // Free cells count for nothing.
-    expect(blockError(s, at(0, 0, 128, 2), later)).toBe('none');
+    expect(blockError(s, at(0, 0, 88, 2), later)).toBe('none');
   });
 });
 

@@ -26,6 +26,7 @@ import {
   createPublicClient,
   createTestClient,
   createWalletClient,
+  encodeAbiParameters,
   http,
   keccak256,
   toHex,
@@ -35,6 +36,8 @@ import {
 } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
+
+import { IMAGE_BOARD_CONFIG_PARAMS } from '../src/image-boards';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const contractsOut = path.resolve(__dirname, '../../websitekit-contracts/out');
@@ -89,17 +92,19 @@ const STANDARD = { takeBps: 14_000n, payoutBps: 11_500n, reversionBps: 9_700n, m
 async function freshBoard(zones: { col: number; row: number; cols: number; rows: number; cellPrice: bigint }[] = []): Promise<{ board: Address; gas: bigint }> {
   const args = [
     SELLER,
-    {
-      settlementToken: usd,
-      width: 2560,
-      height: 10_000,
-      cellSize: 10,
-      cellPrice: 1n,
-      imageHash: keccak256(toHex('img')),
-      zones,
-      kept: [],
-      terms: STANDARD,
-    },
+    encodeAbiParameters(IMAGE_BOARD_CONFIG_PARAMS, [
+      {
+        settlementToken: usd,
+        width: 2560,
+        height: 10_000,
+        cellSize: 10,
+        cellPrice: 1n,
+        imageHash: keccak256(toHex('img')),
+        zones,
+        kept: [],
+        terms: STANDARD,
+      },
+    ]),
   ] as const;
   const { result } = await publicClient.simulateContract({
     address: collection,

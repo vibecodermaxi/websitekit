@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import { Test } from "forge-std/Test.sol";
 import { console } from "forge-std/console.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardCollection } from "../src/ImageBoardCollection.sol";
 import { TestUSD } from "../src/mocks/TestUSD.sol";
 
@@ -24,6 +25,8 @@ function invariantBoardConfig(address token) pure returns (ImageBoard.Config mem
     cfg.kept[0] = ImageBoard.Rect({ col: 10, row: 8, cols: 2, rows: 2 });
 }
 
+
+using ImageBoardReads for ImageBoard;
 /// @notice Drives one small board with random buys (many of them overlapping or out of the grid on
 /// purpose), block transfers, transfer attempts by strangers, edits, withdrawals and moves of the
 /// board's NFT between parties, and keeps its own model of the grid and of who is owed what.
@@ -145,6 +148,38 @@ contract ImageBoardHandler is Test {
     uint256 public ghostListingsEndedByTake;
     uint256 public ghostListRefusedNothingLeft;
     uint256 public ghostWaits;
+
+    /// Rentals (2026-10-20). The model's own tenancy per block, streamed by its own accrual.
+    struct GhostRental {
+        address tenant;
+        uint256 start;
+        uint256 expiry;
+        uint256 prepaid;
+        uint256 claimed;
+        bytes32 tenantHash;
+    }
+
+    mapping(uint256 => GhostRental) internal _gr;
+    mapping(uint256 => uint256) public ghostRentRate;
+    mapping(uint256 => uint256) public ghostRentMax;
+    mapping(uint256 => bytes32) public ghostOwnerHash;
+    /// Everything rent credited but the protocol's cut: the holder's royalty, streams, refunds.
+    uint256 public ghostRentCredited;
+    uint256 public violRentModelDisagrees;
+    uint256 public violMoneyAcrossRent;
+    uint256 public ghostRentListings;
+    uint256 public ghostRentals;
+    uint256 public ghostRentalsAfterALapse;
+    uint256 public ghostRentRefusedStale;
+    uint256 public ghostRentRefusedActive;
+    uint256 public ghostExtensions;
+    uint256 public ghostExtendRefused;
+    uint256 public ghostRefundsOnTake;
+    uint256 public ghostRentedChangedHands;
+    uint256 public ghostRentClaims;
+    uint256 public ghostTenantPictures;
+    uint256 public ghostRentListingsEndedByTake;
+    uint256 public ghostListingsEndedByRent;
 
     constructor(
         ImageBoard board_,
@@ -277,6 +312,51 @@ contract ImageBoardHandler is Test {
                 if (ghostCell[c][r] == id) n++;
             }
         }
+    }
+
+    /// What the model's tenancy has streamed so far: linear from start to expiry, stopping at expiry.
+    function _mAccrued(uint256 id) internal view returns (uint256) {
+        GhostRental storage g = _gr[id];
+        if (g.expiry == 0) return 0;
+        uint256 end = block.timestamp < g.expiry ? block.timestamp : g.expiry;
+        if (end <= g.start) return 0;
+        return g.prepaid * (end - g.start) / (g.expiry - g.start);
+    }
+
+    /// Credits `to` what streamed since the last settlement, as the board must.
+    function _mSettle(uint256 id, address to) internal returns (uint256 due) {
+        GhostRental storage g = _gr[id];
+        uint256 acc = _mAccrued(id);
+        due = acc - g.claimed;
+        if (due == 0) return 0;
+        g.claimed = acc;
+        ghostCredited[to] += due;
+        ghostRentCredited += due;
+    }
+
+    /// Every change of a block's owner: the old owner keeps what streamed; their rent offer ends.
+    function _mOwnerChange(uint256 id, address from) internal returns (uint256 due) {
+        due = _mSettle(id, from);
+        ghostRentRate[id] = 0;
+        ghostRentMax[id] = 0;
+        if (block.timestamp < _gr[id].expiry) ghostRentedChangedHands++;
+    }
+
+    function ghostRental(uint256 id) external view returns (GhostRental memory) {
+        return _gr[id];
+    }
+
+    /// Rent paid and not yet streamed to anyone, as the model has it.
+    function ghostEscrow() public view returns (uint256 e) {
+        for (uint256 id = 1; id <= ghostBlocks; id++) {
+            e += _gr[id].prepaid - _gr[id].claimed;
+        }
+    }
+
+    function ghostShown(uint256 id) external view returns (bytes32) {
+        GhostRental storage g = _gr[id];
+        if (block.timestamp < g.expiry && g.tenantHash != bytes32(0)) return g.tenantHash;
+        return ghostOwnerHash[id];
     }
 
     function _partyIndex(address a) internal view returns (uint256) {
@@ -490,6 +570,7 @@ contract ImageBoardHandler is Test {
             uint256 payouts;
             for (uint256 j = 0; j < plan.n; j++) {
                 Part memory part = plan.parts[j];
+                _mTakeFromTenancy(part.id, part.cells, expected);
                 expected[_partyIndex(ghostOwner[part.id])] += part.payout;
                 ghostCredited[ghostOwner[part.id]] += part.payout;
                 payouts += part.payout;
@@ -526,6 +607,28 @@ contract ImageBoardHandler is Test {
         }
     }
 
+    /// A take of `cells` of a block: a live tenancy is settled to the owner, the tenant refunded the
+    /// unstreamed share for the cells lost, and the rest streams on from now; any rent offer ends.
+    /// `before` is the block's cells as the model has them before this rectangle is recorded.
+    function _mTakeFromTenancy(uint256 id, uint256 cells, uint256[6] memory expected) internal {
+        if (ghostRentRate[id] != 0) ghostRentListingsEndedByTake++;
+        ghostRentRate[id] = 0;
+        ghostRentMax[id] = 0;
+        GhostRental storage g = _gr[id];
+        if (block.timestamp >= g.expiry) return;
+        address owner_ = ghostOwner[id];
+        expected[_partyIndex(owner_)] += _mSettle(id, owner_);
+        uint256 unstreamed = g.prepaid - g.claimed;
+        uint256 refund = unstreamed * cells / _cellsLeft(id);
+        expected[_partyIndex(g.tenant)] += refund;
+        ghostCredited[g.tenant] += refund;
+        ghostRentCredited += refund;
+        g.prepaid = unstreamed - refund;
+        g.claimed = 0;
+        g.start = block.timestamp;
+        if (refund != 0) ghostRefundsOnTake++;
+    }
+
     /// Time passes: cooldowns end and levels revert. Up to two weeks a step.
     function wait(uint256 secs) external {
         ghostCalls++;
@@ -542,6 +645,7 @@ contract ImageBoardHandler is Test {
         address to = from == ghostCreator ? actors[toSeed % 4] : ghostCreator;
         vm.prank(from);
         board.transferBlock(1, to);
+        _mOwnerChange(1, from);
         ghostOwner[1] = to;
         ghostList[1] = 0;
         ghostTransfers++;
@@ -564,6 +668,7 @@ contract ImageBoardHandler is Test {
         if (ghostRefusedKept == 0 && ghostOwner[1] != ghostCreator) {
             vm.prank(ghostOwner[1]);
             board.transferBlock(1, ghostCreator);
+            _mOwnerChange(1, ghostOwner[1]);
             ghostOwner[1] = ghostCreator;
             ghostList[1] = 0;
         }
@@ -618,12 +723,16 @@ contract ImageBoardHandler is Test {
         for (uint256 i = 0; toSeed % 2 == 0 && i < ghostBlocks && ghostList[id] == 0; i++) {
             id = id % ghostBlocks + 1;
         }
+        // A third of the time a block in a live term, so a rented block changing hands is not left
+        // to chance either (seen 2026-10-20).
+        if ((toSeed >> 2) % 3 == 0 && _liveRental(idSeed) != 0) id = _liveRental(idSeed);
         _keptTriedBeforeItLeaves(id, toSeed);
         address from = ghostOwner[id];
         address to = actors[(toSeed >> 1) % 4];
         if (ghostList[id] != 0) ghostListingsEndedByGift++;
         vm.prank(from);
         board.transferBlock(id, to);
+        _mOwnerChange(id, from);
         ghostOwner[id] = to;
         ghostList[id] = 0;
         if (board.listPrice(id) != 0) violListingOutlivedOwner++;
@@ -720,6 +829,8 @@ contract ImageBoardHandler is Test {
         uint256 listed = ghostList[id];
         uint256 expected = staleSeed % 3 == 0 ? listed + 1 : listed;
         bool modelOk = listed != 0 && expected == listed;
+        // What streamed to the seller is theirs before the block changes hands (2026-10-20).
+        uint256 rentDue = _mAccrued(id) - _gr[id].claimed;
 
         ResaleBefore memory b = ResaleBefore({
             board: usd.balanceOf(address(board)),
@@ -735,7 +846,8 @@ contract ImageBoardHandler is Test {
                 violResaleModelDisagrees++;
                 return;
             }
-            _measureResale(b, payer, from, listed);
+            _measureResale(b, payer, from, listed, rentDue);
+            _mOwnerChange(id, from);
             ghostOwner[id] = recipient;
             ghostList[id] = 0;
             if (board.ownerOf(id) != recipient) violWrongRecipient++;
@@ -751,15 +863,15 @@ contract ImageBoardHandler is Test {
     /// Each party's credit is measured on the MODEL's idea of who it is, and the three shares are
     /// computed here, not read from `resaleSplit`. Parties can coincide (an owner who holds the
     /// board, a payer who owns the block), so the expected deltas are summed per address.
-    function _measureResale(ResaleBefore memory b, address payer, address from, uint256 price) internal {
+    function _measureResale(ResaleBefore memory b, address payer, address from, uint256 price, uint256 rentDue) internal {
         uint256 cut = (price * protocolBps) / 10_000;
         uint256 royalty = (price * 500) / 10_000;
         uint256 toOwner = price - cut - royalty;
         if (usd.balanceOf(address(board)) - b.board != price || b.payer - usd.balanceOf(payer) != price) {
             violMoneyAcrossResale++;
         }
-        uint256 ownerGain = toOwner + (from == ghostHolder ? royalty : 0);
-        uint256 holderGain = royalty + (from == ghostHolder ? toOwner : 0);
+        uint256 ownerGain = toOwner + rentDue + (from == ghostHolder ? royalty : 0);
+        uint256 holderGain = royalty + (from == ghostHolder ? toOwner + rentDue : 0);
         if (board.pendingWithdrawals(from) - b.owner != ownerGain) violMoneyAcrossResale++;
         if (board.pendingWithdrawals(ghostHolder) - b.holder != holderGain) violMoneyAcrossResale++;
         if (board.pendingWithdrawals(protocol) - b.protocol != cut) violMoneyAcrossResale++;
@@ -812,6 +924,7 @@ contract ImageBoardHandler is Test {
         uint256 id = idSeed % ghostBlocks + 1;
         vm.prank(ghostOwner[id]);
         board.edit(id, contentHash);
+        ghostOwnerHash[id] = contentHash;
         ghostEdits++;
     }
 
@@ -825,6 +938,302 @@ contract ImageBoardHandler is Test {
         if (usd.balanceOf(account) - before != owed) violMoneyAcrossBuy++;
         ghostWithdrawn[account] += owed;
         ghostWithdrawals++;
+    }
+
+    // -----------------------------------------------------------------
+    // Rentals (2026-10-20)
+    // -----------------------------------------------------------------
+
+    /// The owner — or, one time in five, anyone else — sets a rent offer, ends one, or tries one the
+    /// board must refuse: a term under an hour or past a year, or a block with no cells left.
+    function listRent(uint256 idSeed, uint256 rate, uint256 maxDur, uint256 bySeed) external {
+        ghostCalls++;
+        if (ghostBlocks == 0) return;
+        uint256 id = idSeed % ghostBlocks + 1;
+        address by = bySeed % 5 == 0 ? parties[(bySeed >> 8) % 6] : ghostOwner[id];
+        // Rates that do not divide by 20, so both cuts truncate; terms either side of the bounds.
+        rate = bound(rate, 0, 5_000_003);
+        maxDur = (bySeed >> 16) % 7 == 0 ? 366 days : bound(maxDur, 1 hours - 1, 30 days);
+        bool ok = by == ghostOwner[id] && (rate == 0 || (_cellsLeft(id) != 0 && maxDur >= 1 hours && maxDur <= 365 days));
+        vm.prank(by);
+        try board.listForRent(id, rate, uint64(maxDur)) {
+            if (!ok) violRentModelDisagrees++;
+            ghostRentRate[id] = rate;
+            ghostRentMax[id] = rate == 0 ? 0 : maxDur;
+            if (rate != 0) ghostRentListings++;
+        } catch {
+            if (ok) violRentModelDisagrees++;
+        }
+    }
+
+    struct RentBefore {
+        uint256 board;
+        uint256 payer;
+        uint256[6] owed;
+    }
+
+    function _rentBefore(address payer) internal view returns (RentBefore memory b) {
+        b.board = usd.balanceOf(address(board));
+        b.payer = usd.balanceOf(payer);
+        for (uint256 i = 0; i < 6; i++) {
+            b.owed[i] = board.pendingWithdrawals(parties[i]);
+        }
+    }
+
+    /// Money moved by a rent or an extension of `cost`: the payer paid it, the board holds it, and
+    /// every party's credit moved by exactly `expected`.
+    function _measureRent(RentBefore memory b, address payer, uint256 cost, uint256[6] memory expected) internal {
+        if (usd.balanceOf(address(board)) - b.board != cost || b.payer - usd.balanceOf(payer) != cost) violMoneyAcrossRent++;
+        for (uint256 i = 0; i < 6; i++) {
+            if (board.pendingWithdrawals(parties[i]) - b.owed[i] != expected[i]) violMoneyAcrossRent++;
+        }
+    }
+
+    /// A term's cost split as the model has it: the protocol's cut and the holder's royalty credited,
+    /// the rest returned for the tenancy.
+    function _mBook(uint256 cost, uint256[6] memory expected) internal returns (uint256 net) {
+        uint256 cut = cost * protocolBps / 10_000;
+        uint256 royalty = cost * 500 / 10_000;
+        net = cost - cut - royalty;
+        expected[5] += cut;
+        expected[_partyIndex(ghostHolder)] += royalty;
+        ghostCredited[protocol] += cut;
+        ghostCredited[ghostHolder] += royalty;
+        ghostProtocolCredited += cut;
+        ghostRentCredited += royalty;
+        ghostPaidIn += cost;
+    }
+
+    /// Someone rents a block for an actor, naming the offered rate or (one time in four) a stale one,
+    /// for a term inside the offer or (one time in five) outside it. Aimed at offered blocks; when
+    /// none is, an owner offers one first. The model decides first; money is measured across.
+    function rentBlock(uint256 idSeed, uint256 payerSeed, uint256 tenantSeed, uint256 durSeed, uint256 staleSeed) external {
+        ghostCalls++;
+        if (ghostBlocks == 0) return;
+        uint256 id = idSeed % ghostBlocks + 1;
+        // Half the time a block whose term has lapsed, so renting again is not left to chance: a run
+        // could otherwise end with every lapsed block's offer gone (seen 2026-10-20).
+        uint256 lapsed = (staleSeed >> 8) % 2 == 0 ? _lapsedRental(idSeed) : 0;
+        if (lapsed != 0) id = lapsed;
+        for (uint256 i = 0; lapsed == 0 && i < ghostBlocks && ghostRentRate[id] == 0; i++) {
+            id = id % ghostBlocks + 1;
+        }
+        if (ghostRentRate[id] == 0) {
+            for (uint256 i = 0; i < ghostBlocks && _cellsLeft(id) == 0; i++) {
+                id = id % ghostBlocks + 1;
+            }
+            if (_cellsLeft(id) == 0) return;
+            uint256 offer = 10_007 + idSeed % 2_000_000;
+            uint256 longest = 1 hours + durSeed % 20 days;
+            vm.prank(ghostOwner[id]);
+            board.listForRent(id, offer, uint64(longest));
+            ghostRentRate[id] = offer;
+            ghostRentMax[id] = longest;
+            ghostRentListings++;
+        }
+        // A third of the time the owner has put it up for resale too, so a rental ending a resale
+        // listing is exercised (2026-10-20).
+        if ((staleSeed >> 16) % 3 == 0 && ghostList[id] == 0 && _cellsLeft(id) != 0) {
+            vm.prank(ghostOwner[id]);
+            board.listBlock(id, 1_000_003);
+            ghostList[id] = 1_000_003;
+            ghostListings++;
+        }
+        uint256 rate = ghostRentRate[id];
+        uint256 max = ghostRentMax[id];
+        uint256 named = staleSeed % 4 == 1 ? rate + 1 : rate;
+        uint256 dur = staleSeed % 5 == 2 ? (durSeed % 2 == 0 ? 1 hours - 1 : max + 1) : bound(durSeed, 1 hours, max);
+        _attemptRent(id, actors[payerSeed % 4], actors[tenantSeed % 4], dur, named);
+    }
+
+    /// One rent the model decides before the call; on success the money is measured across it.
+    function _attemptRent(uint256 id, address payer, address tenant, uint256 dur, uint256 named) internal {
+        uint256 rate = ghostRentRate[id];
+        uint256 max = ghostRentMax[id];
+        bool active = block.timestamp < _gr[id].expiry;
+        bool inTerm = dur >= 1 hours && dur <= max;
+        bool ok = rate != 0 && named == rate && inTerm && !active;
+
+        RentBefore memory b = _rentBefore(payer);
+        vm.prank(payer);
+        try board.rent(id, tenant, uint64(dur), named) {
+            if (!ok) {
+                violRentModelDisagrees++;
+                return;
+            }
+            _rented(id, tenant, payer, dur, b);
+        } catch {
+            if (ok) violRentModelDisagrees++;
+            if (named != rate) ghostRentRefusedStale++;
+            else if (active && inTerm) ghostRentRefusedActive++;
+            if (usd.balanceOf(address(board)) != b.board) violRentModelDisagrees++;
+        }
+    }
+
+    /// A whole term on one block in one call: offered, rented for an hour, refused while live,
+    /// lapsed, rented again — so each of those paths is exercised in every run rather than left to
+    /// the order uniform picks happen to land in (2026-10-20).
+    function rentCycle(uint256 idSeed, uint256 payerSeed, uint256 tenantSeed) external {
+        ghostCalls++;
+        if (ghostBlocks == 0) return;
+        uint256 id = idSeed % ghostBlocks + 1;
+        for (uint256 i = 0; i < ghostBlocks && (_cellsLeft(id) == 0 || block.timestamp < _gr[id].expiry); i++) {
+            id = id % ghostBlocks + 1;
+        }
+        if (_cellsLeft(id) == 0 || block.timestamp < _gr[id].expiry) return;
+        uint256 offer = 10_007 + idSeed % 1_000_000;
+        vm.prank(ghostOwner[id]);
+        board.listForRent(id, offer, 2 days);
+        ghostRentRate[id] = offer;
+        ghostRentMax[id] = 2 days;
+        ghostRentListings++;
+        address payer = actors[payerSeed % 4];
+        _attemptRent(id, payer, actors[tenantSeed % 4], 1 hours, offer);
+        _attemptRent(id, payer, actors[(tenantSeed >> 8) % 4], 1 hours, offer);
+        vm.warp(block.timestamp + 1 hours);
+        _attemptRent(id, payer, actors[(tenantSeed >> 16) % 4], 1 hours, offer);
+    }
+
+    /// A rental the model accepted went through: the lapsed term's last stream to the owner, the
+    /// split, a fresh tenancy, the resale listing ended — then the money measured.
+    function _rented(uint256 id, address tenant, address payer, uint256 dur, RentBefore memory b) internal {
+        GhostRental storage g = _gr[id];
+        bool lapsed = g.expiry != 0;
+        uint256[6] memory expected;
+        expected[_partyIndex(ghostOwner[id])] += _mSettle(id, ghostOwner[id]);
+        uint256 cost = ghostRentRate[id] * dur / 86_400;
+        g.prepaid = _mBook(cost, expected);
+        g.tenant = tenant;
+        g.start = block.timestamp;
+        g.expiry = block.timestamp + dur;
+        g.claimed = 0;
+        g.tenantHash = bytes32(0);
+        if (ghostList[id] != 0) ghostListingsEndedByRent++;
+        ghostList[id] = 0;
+        _measureRent(b, payer, cost, expected);
+        ghostRentals++;
+        if (lapsed) ghostRentalsAfterALapse++;
+    }
+
+    /// The tenant — or, one time in five, someone else — extends a live term at the offered rate or a
+    /// stale one. Settle, then restart: the model rolls the unstreamed rest into the new term.
+    function extendRent(uint256 idSeed, uint256 durSeed, uint256 staleSeed, uint256 bySeed) external {
+        ghostCalls++;
+        uint256 id = _liveRental(idSeed);
+        if (id == 0) return;
+        GhostRental storage g = _gr[id];
+        address by = bySeed % 5 == 0 ? actors[(bySeed >> 8) % 4] : g.tenant;
+        uint256 rate = ghostRentRate[id];
+        uint256 max = ghostRentMax[id];
+        uint256 named = staleSeed % 4 == 1 ? rate + 1 : rate;
+        uint256 dur = max == 0 ? 1 hours : bound(durSeed, 1 hours, max);
+        bool ok = by == g.tenant && rate != 0 && named == rate;
+
+        RentBefore memory b = _rentBefore(by);
+        vm.prank(by);
+        try board.extendRental(id, uint64(dur), named) {
+            if (!ok) {
+                violRentModelDisagrees++;
+                return;
+            }
+            _extended(id, by, dur, b);
+        } catch {
+            if (ok) violRentModelDisagrees++;
+            ghostExtendRefused++;
+        }
+    }
+
+    /// Settle, then restart: the unstreamed rest rolls into the new term with the new rent.
+    function _extended(uint256 id, address by, uint256 dur, RentBefore memory b) internal {
+        GhostRental storage g = _gr[id];
+        uint256[6] memory expected;
+        expected[_partyIndex(ghostOwner[id])] += _mSettle(id, ghostOwner[id]);
+        uint256 cost = ghostRentRate[id] * dur / 86_400;
+        g.prepaid = g.prepaid - g.claimed + _mBook(cost, expected);
+        g.claimed = 0;
+        g.start = block.timestamp;
+        g.expiry = block.timestamp + dur;
+        _measureRent(b, by, cost, expected);
+        ghostExtensions++;
+    }
+
+    /// Anyone claims two blocks' rent; each owner is credited exactly what streamed to them.
+    function claimRents(uint256 seedA, uint256 seedB, uint256 bySeed) external {
+        ghostCalls++;
+        if (ghostBlocks == 0) return;
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = seedA % ghostBlocks + 1;
+        ids[1] = seedB % ghostBlocks + 1;
+        RentBefore memory b = _rentBefore(address(this));
+        uint256[6] memory expected;
+        for (uint256 i = 0; i < 2; i++) {
+            expected[_partyIndex(ghostOwner[ids[i]])] += _mSettle(ids[i], ghostOwner[ids[i]]);
+        }
+        vm.prank(parties[bySeed % 6]);
+        board.claimRent(ids);
+        for (uint256 i = 0; i < 6; i++) {
+            if (board.pendingWithdrawals(parties[i]) - b.owed[i] != expected[i]) violMoneyAcrossRent++;
+        }
+        if (usd.balanceOf(address(board)) != b.board) violMoneyAcrossRent++;
+        ghostRentClaims++;
+    }
+
+    /// The tenant — or the owner, or anyone, one time in three — sets the term's picture.
+    function editRented(uint256 idSeed, bytes32 contentHash, uint256 bySeed) external {
+        ghostCalls++;
+        if (ghostBlocks == 0) return;
+        uint256 id = _liveRental(idSeed);
+        if (id == 0) id = idSeed % ghostBlocks + 1;
+        GhostRental storage g = _gr[id];
+        if (contentHash == bytes32(0)) contentHash = keccak256(abi.encode(idSeed));
+        address by = bySeed % 3 == 0 ? parties[(bySeed >> 8) % 6] : g.tenant;
+        bool ok = block.timestamp < g.expiry && by == g.tenant && by != address(0);
+        vm.prank(by);
+        try board.editRented(id, contentHash) {
+            if (!ok) violRentModelDisagrees++;
+            g.tenantHash = contentHash;
+            ghostTenantPictures++;
+        } catch {
+            if (ok) violRentModelDisagrees++;
+        }
+    }
+
+    /// A buy over a cell of a block in a live term, so a take of a rented block is not left to
+    /// chance — uniform picks rarely land one. Cooldowns may still refuse it.
+    function buyOverARentedBlock(uint256 payerSeed, uint256 recipientSeed, uint256 idSeed, uint16 cols) external {
+        ghostCalls++;
+        uint256 id = _liveRental(idSeed);
+        if (id == 0) return;
+        uint16[4] memory sh = _ghostShape[id];
+        for (uint16 r = sh[1]; r < sh[1] + sh[3]; r++) {
+            for (uint16 c = sh[0]; c < sh[0] + sh[2]; c++) {
+                if (ghostCell[c][r] == id) {
+                    _tryBuy(payerSeed, recipientSeed, c, r, uint16(bound(cols, 1, 2)), 1);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// The first block at or after `seed`'s whose term has lapsed and which still holds a cell, or 0.
+    function _lapsedRental(uint256 seed) internal view returns (uint256) {
+        uint256 id = seed % ghostBlocks + 1;
+        for (uint256 i = 0; i < ghostBlocks; i++) {
+            if (_gr[id].expiry != 0 && block.timestamp >= _gr[id].expiry && _cellsLeft(id) != 0) return id;
+            id = id % ghostBlocks + 1;
+        }
+        return 0;
+    }
+
+    /// The first block at or after `seed`'s with a live term, or 0.
+    function _liveRental(uint256 seed) internal view returns (uint256) {
+        if (ghostBlocks == 0) return 0;
+        uint256 id = seed % ghostBlocks + 1;
+        for (uint256 i = 0; i < ghostBlocks; i++) {
+            if (block.timestamp < _gr[id].expiry) return id;
+            id = id % ghostBlocks + 1;
+        }
+        return 0;
     }
 
     // -----------------------------------------------------------------
@@ -853,10 +1262,16 @@ contract ImageBoardHandler is Test {
 /// every party — displaced owners, the board's holder, the protocol — is credited across each buy
 /// exactly what the model priced; a kept block is never taken while its creator owns it.
 ///
+/// Since 2026-10-20 (rentals): every tenancy, rent offer and shown picture equals the model's;
+/// rentals, extensions, claims, takes and changes of owner each credit exactly what the model
+/// streamed or refunded; the board holds what it owes plus the rent still streaming.
+///
 /// One `invariant_` on purpose: each is a separate campaign, so grouping keeps the run short.
-/// 64 runs × 500 calls: the model is checked cell by cell after every call, and 256 runs took
-/// 221 s for no more coverage — the 12×10 grid fills within a few dozen buys per run.
-/// forge-config: default.invariant.runs = 64
+/// 48 runs × 750 calls (2026-10-20; 64 × 500 before rentals): six rental actions spread a run's
+/// calls thinner, and longer runs keep every coverage check landing. The model is checked cell by
+/// cell after every call; the 12×10 grid fills within a few dozen buys per run.
+/// forge-config: default.invariant.runs = 48
+/// forge-config: default.invariant.depth = 750
 contract ImageBoardInvariantTest is Test {
     ImageBoard internal board;
     TestUSD internal usd;
@@ -880,7 +1295,7 @@ contract ImageBoardInvariantTest is Test {
         // 125×104 at 10 px → 12×10, with a strip unsold on both axes; zones and a kept block as
         // `invariantBoardConfig` describes.
         address[4] memory actors = [makeAddr("a0"), makeAddr("a1"), makeAddr("a2"), makeAddr("a3")];
-        (address created,) = collection.createBoardFor(seller, invariantBoardConfig(address(usd)));
+        (address created,) = collection.createBoardFor(seller, abi.encode(invariantBoardConfig(address(usd))));
         board = ImageBoard(created);
         boardCollection = collection;
 
@@ -899,6 +1314,28 @@ contract ImageBoardInvariantTest is Test {
         _moneyInEqualsCredits();
         _ownersAreRecipientsAndOnlyTheyMoveBlocks();
         _listingsAreTheCurrentOwnersOnly();
+        _rentalsAreTheModels();
+    }
+
+    /// Every tenancy, rent offer and shown picture is the model's; a rental, extension or edit went
+    /// through exactly when the model said; rent moved exactly what the model priced.
+    function _rentalsAreTheModels() internal view {
+        assertEq(handler.violRentModelDisagrees(), 0, "a rental action went through, or was refused, against the model");
+        assertEq(handler.violMoneyAcrossRent(), 0, "rent moved or credited the wrong amount");
+        for (uint256 id = 1; id <= handler.ghostBlocks(); id++) {
+            ImageBoard.Rental memory t = board.rentalOf(id);
+            ImageBoardHandler.GhostRental memory g = handler.ghostRental(id);
+            assertEq(t.tenant, g.tenant, "a tenancy's tenant is not the model's");
+            assertEq(t.start, g.start, "a tenancy's start is not the model's");
+            assertEq(t.expiry, g.expiry, "a tenancy's end is not the model's");
+            assertEq(t.prepaid, g.prepaid, "a tenancy's escrow is not the model's");
+            assertEq(t.claimed, g.claimed, "a tenancy's claimed rent is not the model's");
+            assertEq(t.tenantHash, g.tenantHash, "a tenant's picture is not the model's");
+            (uint192 rate, uint64 max) = board.rentListing(id);
+            assertEq(rate, handler.ghostRentRate(id), "a rent offer is not the model's");
+            assertEq(max, handler.ghostRentMax(id), "a rent offer's term is not the model's");
+            assertEq(board.shownHash(id), handler.ghostShown(id), "the picture shown is not the model's");
+        }
     }
 
     /// Every listing on the board is the one the model says its current owner set; a resale went
@@ -954,8 +1391,8 @@ contract ImageBoardInvariantTest is Test {
         assertEq(
             handler.ghostPaidIn(),
             handler.ghostSellerCredited() + handler.ghostProtocolCredited() + handler.ghostResaleCredited()
-                + handler.ghostPayoutsCredited(),
-            "money in is not holder credit plus protocol cut plus resale credits plus take payouts"
+                + handler.ghostPayoutsCredited() + handler.ghostRentCredited() + handler.ghostEscrow(),
+            "money in is not every credit plus the rent still streaming"
         );
         assertEq(handler.violPaidTheWrongHolder(), 0, "a sale credited someone other than the board's holder");
         assertEq(handler.violCutModelDisagrees(), 0, "a price cut went through, or was refused, against the model");
@@ -970,7 +1407,8 @@ contract ImageBoardInvariantTest is Test {
             );
             owed += board.pendingWithdrawals(a);
         }
-        assertEq(usd.balanceOf(address(board)), owed, "the board holds other than what it owes");
+        // Since rentals (2026-10-20): owed, plus rent paid and not yet streamed to anyone.
+        assertEq(usd.balanceOf(address(board)), owed + handler.ghostEscrow(), "the board holds other than what it owes and escrows");
     }
 
     function _ownersAreRecipientsAndOnlyTheyMoveBlocks() internal view {
@@ -1022,5 +1460,21 @@ contract ImageBoardInvariantTest is Test {
         assertGt(handler.ghostRefusedKept(), 0, "no buy was refused over a kept cell");
         assertGt(handler.ghostKeptTakenAfterGift(), 0, "a given-away kept block was never taken");
         assertGt(handler.ghostListingsEndedByTake(), 0, "no take ever ended a listing");
+        console.log("rent offers / rentals / after a lapse", handler.ghostRentListings(), handler.ghostRentals(), handler.ghostRentalsAfterALapse());
+        console.log("rent refused stale / active", handler.ghostRentRefusedStale(), handler.ghostRentRefusedActive());
+        console.log("extensions / refused", handler.ghostExtensions(), handler.ghostExtendRefused());
+        console.log("refunds on a take / rented changed hands", handler.ghostRefundsOnTake(), handler.ghostRentedChangedHands());
+        console.log("claims / tenant pictures", handler.ghostRentClaims(), handler.ghostTenantPictures());
+        console.log("rent offers ended by a take / resale listings ended by a rental", handler.ghostRentListingsEndedByTake(), handler.ghostListingsEndedByRent());
+        assertGt(handler.ghostRentals(), 0, "no rental ever landed");
+        assertGt(handler.ghostRentalsAfterALapse(), 0, "no block was rented again after a term lapsed");
+        assertGt(handler.ghostRentRefusedStale(), 0, "no rental named a stale rate - the rate check was vacuous");
+        assertGt(handler.ghostRentRefusedActive(), 0, "no rental was refused over a live term");
+        assertGt(handler.ghostExtensions(), 0, "no term was ever extended");
+        assertGt(handler.ghostRefundsOnTake(), 0, "no take ever refunded a tenant");
+        assertGt(handler.ghostRentedChangedHands(), 0, "no rented block ever changed hands");
+        assertGt(handler.ghostTenantPictures(), 0, "no tenant ever set a picture");
+        assertGt(handler.ghostRentListingsEndedByTake(), 0, "no take ever ended a rent offer");
+        assertGt(handler.ghostListingsEndedByRent(), 0, "no rental ever ended a resale listing");
     }
 }

@@ -3,8 +3,11 @@ pragma solidity 0.8.30;
 
 import { Vm } from "forge-std/Vm.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
+
+using ImageBoardReads for ImageBoard;
 /// @notice Several rectangles in one buy (`IMAGE-BOARD-SPEC.md` §6, 2026-10-11): all or nothing,
 /// each rectangle its own block, each priced and cut as if bought alone, one payment.
 ///

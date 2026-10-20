@@ -18,11 +18,17 @@ every block's picture in it.
   fixed at deployment and chosen by whoever deploys it (changed 2026-10-12: the protocol's source
   names no product, as `SlotSite`'s name and symbol are `createSite` arguments; both must be
   non-empty, `EmptyName`). Its
-  `createBoardFor(seller, config)` clones one `ImageBoard` implementation (EIP-1167), initializes it,
+  `createBoardFor(seller, config)` clones the current `implementation` (EIP-1167), initializes it,
   and mints the board's token to `seller`, in one transaction — so no uninitialized clone exists for
-  anyone else to claim. Tokens run from 1.
+  anyone else to claim. Tokens run from 1. `implementationOf(token)` records which implementation
+  each board was cloned from.
+- **`config` is bytes the collection never reads** (changed 2026-10-20): the ABI-encoded set-up of
+  the current implementation (§4), passed to `initialize(boardTokenId, creator, config)`. After it
+  returns, the collection asks the board's `settlementToken()` and refuses a token not on its
+  allowlist (`TokenNotAllowed`). That is all it asks of an implementation, so a later one may take
+  a set-up of another shape.
 - **`ImageBoard`** holds one board: the grid, the blocks, the money. It knows its `collection` and
-  its `boardTokenId`. Verifying the implementation once verifies every board.
+  its `boardTokenId`. Verifying an implementation once verifies every board cloned from it.
 - **The implementation's constructor takes `protocolBps` and `protocolTreasury`** as immutables, so a
   clone cannot strip them. The deploy script reads both from the live `SlotSite` implementation and
   refuses anything but 500 bps.
@@ -34,10 +40,16 @@ every block's picture in it.
   changes owner only by its owner's act — `transferBlock`, or a sale of the listing they put up
   (§7a) — and loses cells only to a buy that pays its owner for them (§11). Whoever holds the
   board's token may lower every free square's price and never raise it (§2a).
-- **The collection's owner has exactly two powers**: `allowToken` (which settlement tokens NEW boards
-  may use) and `setBaseURI` (where token metadata is fetched from, so its host can move domains;
-  it emits ERC-4906 `BatchMetadataUpdate(1, max)`). It has no reach into a board, its blocks or its
-  money.
+- **The collection's owner has exactly three powers**: `allowToken` (which settlement tokens NEW
+  boards may use), `setImplementation` (which implementation NEW boards are cloned from; refuses an
+  address with no code, `NotAContract`; emits `ImplementationSet`), and `setBaseURI` (where token
+  metadata is fetched from, so its host can move domains; it emits ERC-4906
+  `BatchMetadataUpdate(1, max)`). It has no reach into an existing board, its blocks or its money: a
+  board runs the implementation it was cloned from, for good.
+- **Recorded reason for `setImplementation`** (2026-10-20): a board's code is fixed when it is
+  cloned, so a feature added later can only reach boards created after it. Without this power such
+  a feature would need a second collection, splitting boards between two NFT collections. A buyer
+  reads a board's rules from `implementationOf`, never from the collection's current one.
 - **`createBoardFor` is permissionless** and the seller signs nothing. That grants nothing to the
   caller: `seller` is explicit and receives the token.
 
@@ -79,14 +91,14 @@ Raising prices, per-zone cuts and a price that falls on a schedule were consider
 |---|---|
 | `settlementToken` | Non-zero, on the collection's allowlist. ERC-20 only: there is no native path |
 | `width`, `height` | The image's own pixels |
-| `cellSize` | 10, 15 or 20 |
+| `cellSize` | Any whole number from `MIN_CELL_SIZE` (10) to `MAX_CELL_SIZE` (200) (changed 2026-10-20 from exactly 10, 15 or 20, so larger squares for a large picture need no new contract) |
 | `cellPrice` | Non-zero, in the token's units. What a square costs now is this at `priceBps` (§2a) |
 | `imageHash` | Non-zero. Hash of the source image, recorded so the board names what it sells |
 | `zones` | Optional, may be empty. §4a |
 | `kept` | Optional, may be empty. §4a |
 | `terms` | `takeBps`, `payoutBps`, `reversionBps`, `maxReversionWeeks`, `cooldownSecs`: how a sold cell is taken (§11), under `TermsLib.checkEconomicsAbsolute`'s clamps, which revert with its own errors |
 
-Anything else reverts `InvalidConfig` or `ZeroAddress`. `initialize` records `msg.sender` as the
+The collection carries this as `abi.encode(Config)` (§1). Anything else reverts `InvalidConfig` or `ZeroAddress`. `initialize` records `msg.sender` as the
 board's `collection`; a clone initialized by anyone else is not the collection's and cannot signal it.
 
 ## 4a. Zones and kept blocks (added 2026-10-11)
@@ -340,11 +352,13 @@ runs it appears in. The SDK's twin reads the same map through `cellRow`.
     words, 4,096 cells) 15.6M. A cell cap that held for every shape would have stopped near 700
     cells; 512 words allow a 64 × 64 square or a 256 × 16 strip, and a column only 512 tall. The
     whole-grid buy of §5 ends here.
-  - **`MAX_BLOCKS_TAKEN_PER_BUY` = 128**, counted once per rectangle: each costs a credit, a count,
-    perhaps a delisting, and an event.
+  - **`MAX_BLOCKS_TAKEN_PER_BUY` = 88** (128 until rentals, §12), counted once per rectangle: each
+    costs a credit, a count, perhaps a delisting, an event — and, if rented, settling and refunding
+    its tenancy.
   - Measured under `MAX_ZONES` (512, unchanged): a fresh 256 × 16 buy 18.7M; a fresh 8 × 512 buy,
-    every row its own zone, 19.3M; the worst take — 512 words, 128 blocks each with an owner never
-    credited before, each listed and a year old — 23.5M.
+    every row its own zone, 19.3M; the worst take — 512 words, 88 blocks each a year old, each with
+    an owner never credited before, each rented to its own tenant and offered for rent and for
+    resale — 26.0M, under the 26.67M bound (32M with 20% headroom). At 92 it was 26.4M; at 96, 26.7M.
 - Effects per rectangle: price each part, credit each displaced owner, decrement each covered
   block's `cellsLeft`, end each covered block's listing, write the cells, record the new block with
   its level and `boughtAt`, emit. Then one pull, one `boardChanged`.
@@ -386,3 +400,65 @@ across every buy. 30 contract mutations, each caught by the unit tests; three of
 unit high, kept squares protected forever, no reversion) also caught by the invariant suite alone.
 The SDK's twin (`buyError`, `quoteBlocks`) is pinned by `GenImageGridVectors.s.sol`, which builds a
 board by real buys and takes at real times and buys every list case for real on a snapshot.
+
+## 12. Renting a block — added 2026-10-20
+
+**Recorded reason**: a block earned its owner nothing while held — only a take or a resale paid. A
+term lets an owner earn from a block while keeping it, and gives an advertiser a placement without
+buying. Page boards' rentals (`PROTOCOL-SPEC.md` §2) are the model, changed where a block differs
+from a page slot.
+
+### 12.1 What is kept from page rentals
+
+- An owner offers a block at a daily rate for terms up to a longest one (`listForRent`, owner only,
+  while the block holds a cell; a rate of zero ends the offer). Terms run from `MIN_RENTAL_DURATION`
+  (1 hour) to `MAX_RENTAL_TERM` (365 days), in seconds; the rate is per day.
+- A term is paid up front by whoever calls `rent(blockId, tenant, durationSecs, expectedRatePerDay)`
+  — the tenant is NAMED — at exactly the rate the payer agreed to (`RateChanged` otherwise). The rest
+  after both cuts is held by the board and **streams to whoever owns the block** linearly from the
+  term's start to its end. `claimRent(ids)`, permissionless, credits each owner what has streamed.
+- `extendRental`, the tenant only, during a live term: the term becomes `durationSecs` from now at
+  the CURRENT rate; what was paid and has not streamed rolls into it (settle, then restart).
+- Any change of owner (`transferBlock`, a resale) first credits the old owner what streamed, and
+  ends the rent offer; the tenancy survives. `owner == tenant` is legal. Cooldowns do not apply.
+
+### 12.2 What differs, and why
+
+- **Fixed split**: 5% to the protocol (`protocolBps`), 5% to whoever holds the board's NFT at that
+  moment (`RENT_ROYALTY_BPS`), the rest escrowed — as a resale's. There is no publisher's dial.
+- **The tenant's picture is held apart** (`Rental.tenantHash`, set by `editRented`). `shownHash`
+  is the tenant's while the term is live and they have chosen one, the owner's `contentHash`
+  otherwise — so a term ends by itself, at `expiry`, with no transaction: no `endRental`, no keeper,
+  and no lockout of the owner, who may change their own picture during a term. A new term may start
+  the moment one lapses; it starts with no tenant picture.
+- **A take does not end a tenancy; it shrinks it.** A take of `lost` of a rented block's `before`
+  cells credits the owner what has streamed, refunds the tenant `unstreamed × lost / before`
+  (rounded down), and streams the rest from now to the same end over the cells left. A take ends the
+  block's rent offer, rented or not — as it ends a resale listing.
+- **No rate floor.** On a page board a self-rented slot could not be edited by whoever took it, so
+  `PROTOCOL-SPEC.md` §2.1 needs a floor. Here a take makes a new block its taker edits freely; a
+  tenancy never stands in a taker's way.
+- **A rental ends any resale listing**, so a buyer's `expectedPrice` never buys a block whose term
+  they were not shown.
+
+### 12.3 State and events
+
+```solidity
+struct RentListing { uint192 ratePerDay; uint64 maxDurationSecs; }
+struct Rental { address tenant; uint40 start; uint40 expiry; uint128 prepaid; uint128 claimed; bytes32 tenantHash; }
+mapping(uint256 => RentListing) public rentListing;   // rentalOf(id) reads the Rental
+```
+
+`RentListed(blockId, owner, ratePerDay, maxDurationSecs)` (zero rate: ended), `BlockRented(blockId,
+tenant, payer, expiry, cost)`, `RentalExtended(blockId, tenant, expiry, cost)`, `RentClaimed(blockId,
+owner, amount)`, `RentRefunded(blockId, tenant, cells, amount)`. A tenant's picture emits
+`BlockEdited` with the tenant as editor. Errors: `NotForRent`, `RateChanged`, `TermTooLong`,
+`RentalActive`, `RentalExpired`, `NotTenant`.
+
+### 12.4 Tests
+
+`test/ImageBoardRentals.t.sol`: every rule at its boundary, money measured across each call; 23
+mutations of the rules, all caught (two after tests were strengthened, one of them finding that a
+take left an unrented block's offer standing). The invariant suite models every tenancy, offer and
+shown picture, and measures every party's credit across rentals, extensions, claims, takes, gifts
+and resales; the board holds what it owes plus what is still streaming.
