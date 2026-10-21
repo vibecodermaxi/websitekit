@@ -35,6 +35,7 @@ import {
   splitSignature,
   type CreateImageBoardOptions,
 } from './image-boards';
+import { settlementTokenFor } from './settlement';
 
 const BOARD = '0x00000000000000000000000000000000000b0a2d' as Address;
 const COLLECTION = '0x0000000000000000000000000000000000c011ec' as Address;
@@ -253,13 +254,26 @@ describe('holder calls', () => {
   });
 });
 
-/** Testnet only until mainnet is deployed (2026-10-12): mainnet is refused, never answered with testnet's addresses. */
+/** Mainnet arrived 2026-10-21. Each chain answers with its own addresses; any other chain is refused by name. */
 describe('imageBoardDeploymentFor', () => {
-  it('names the testnet deployment, and refuses mainnet and any other chain by name', () => {
-    expect(imageBoardDeploymentFor(46630)).toMatchObject({ chainId: 46630, decimals: 6, mintable: true });
-    expect(imageBoardDeploymentFor(46630).collection).toMatch(/^0x[0-9a-f]{40}$/);
-    expect(() => imageBoardDeploymentFor(4663)).toThrow('websitekit: image boards are not deployed on chain 4663. Deployed chains: 46630.');
-    expect(() => imageBoardDeploymentFor(1)).toThrow(/not deployed on chain 1\./);
+  it('names each chain its own deployment, and refuses any other chain by name', () => {
+    const main = imageBoardDeploymentFor(4663);
+    const test = imageBoardDeploymentFor(46630);
+    expect(main).toMatchObject({ chainId: 4663, decimals: 6, mintable: false });
+    expect(test).toMatchObject({ chainId: 46630, decimals: 6, mintable: true });
+    for (const d of [main, test]) {
+      for (const a of [d.implementation, d.collection, d.token]) expect(a).toMatch(/^0x[0-9a-f]{40}$/);
+    }
+    // Never another chain's addresses.
+    expect([main.implementation, main.collection, main.token]).not.toContain(test.implementation);
+    expect(main.collection).not.toBe(test.collection);
+    expect(main.token).not.toBe(test.token);
+    expect(() => imageBoardDeploymentFor(1)).toThrow('websitekit: image boards are not deployed on chain 1. Deployed chains: 4663, 46630.');
+  });
+
+  it("settles mainnet boards in the chain's real dollar, never a mintable stand-in", () => {
+    expect(imageBoardDeploymentFor(4663).token).toBe(settlementTokenFor(4663).address);
+    expect(settlementTokenFor(4663).mintable).toBe(false);
   });
 });
 

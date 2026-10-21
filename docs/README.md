@@ -420,8 +420,8 @@ ends, by itself, and the owner's comes back. A take refunds the tenant for the s
 of the block leaves the term running. Each board keeps the rules of the contract it was created
 from, for good: the collection can point only new boards at a later one.
 
-**Testnet only for now** (Robinhood Chain testnet, 46630). The contracts are
-`ImageBoard.sol` and `ImageBoardCollection.sol`, specified in
+**On Robinhood Chain mainnet (4663) since 2026-10-21**, where boards settle in USDG, and on its
+testnet (46630). The contracts are `ImageBoard.sol` and `ImageBoardCollection.sol`, specified in
 [`IMAGE-BOARD-SPEC.md`](./IMAGE-BOARD-SPEC.md); the client is `@websitekit/sdk/image-boards`, whose
 `imageBoardDeploymentFor` refuses any chain without a deployment rather than answering with
 another's. The chain records who owns which block and the content hash each one shows; drawing the
@@ -434,13 +434,18 @@ board's picture from those is the host's job.
 **Robinhood Chain mainnet (4663)**, where boards settle in USDG, and **Robinhood Chain testnet
 (46630)**, where they settle in tUSD, a stand-in dollar anybody can mint. Both carry the same
 generation: the four core contracts and the three escrow contracts. All seven on mainnet are
-verified on Sourcify as exact matches.
+verified on Sourcify as exact matches. Image boards are two more on each chain, `ImageBoard` (the
+implementation every board clones) and `ImageBoardCollection`; on mainnet both are verified on
+Sourcify and Etherscan.
 
 The current addresses live in
 [`packages/websitekit-sdk/src/addresses.ts`](../packages/websitekit-sdk/src/addresses.ts) and are
 exported as `ROBINHOOD_MAINNET` / `ROBINHOOD_TESTNET` (core), `ROBINHOOD_MAINNET_ESCROW` /
 `ROBINHOOD_TESTNET_ESCROW` (escrow), and through `deploymentFor(chainId)` and
-`escrowDeploymentFor(chainId)`. The settlement token per chain is `settlementTokenFor(chainId)`.
+`escrowDeploymentFor(chainId)`. Image boards' are in
+[`packages/websitekit-sdk/src/image-boards.ts`](../packages/websitekit-sdk/src/image-boards.ts) as
+`ROBINHOOD_MAINNET_IMAGE_BOARDS` / `ROBINHOOD_TESTNET_IMAGE_BOARDS`, through
+`imageBoardDeploymentFor(chainId)`. The settlement token per chain is `settlementTokenFor(chainId)`.
 Read them from there rather than copying them, because a contract change means a new generation and
 this document will not be the thing that gets updated first.
 

@@ -70,7 +70,7 @@ has to land first, on the site. `readClaimable` is the vault's own verdict and f
 into a zero; `readVault` carries the clock and the ledger. `buildMarkDark`/`buildClearDark` are the
 attestor's and accepted from nobody else.
 
-## Image boards — testnet only
+## Image boards
 
 The second kind of board: one uploaded picture, sold as rectangular blocks of square cells. The
 board itself is one ERC-721 token in a shared collection; a block is a record on its board, given
@@ -78,8 +78,8 @@ or resold whole only by its owner. Any cell can be bought, sold or not: a buy ov
 cells takes them at that block's price times the board's take multiple, and credits its owner — as
 a page slot is taken — except a square its creator kept, and one bought in the last cooldown. Spec: [`docs/IMAGE-BOARD-SPEC.md`](../../docs/IMAGE-BOARD-SPEC.md).
 
-**Robinhood Chain testnet (46630) only, for now.** `imageBoardDeploymentFor(4663)` throws rather
-than answering with testnet's addresses; mainnet arrives as a release with its addresses in it.
+**On Robinhood Chain (4663) and its testnet (46630).** `imageBoardDeploymentFor` answers each
+with its own addresses and throws for any other chain. Mainnet boards settle in USDG.
 Everything lives under its own entry point, because its names (`quote`, `readBlock`, `Rect`) are
 generic:
 
@@ -154,7 +154,7 @@ only as good as that host's support for it.
 ## Status
 
 Live on Robinhood Chain mainnet, where boards settle in USDG and the money is real, and on its
-testnet. Image boards are on the testnet only. Unaudited, and the contracts are **not
+testnet; image boards are on both. Unaudited, and the contracts are **not
 upgradeable** — a site is a clone frozen to the implementation it was created from. Experimental
 software.
 

@@ -6,7 +6,8 @@ as rectangles of square cells. **Each board is one ERC-721 token; a block is not
 page); nothing here changes it, and the two share no code or storage.
 
 **Status: unaudited**, like the rest of the protocol. Outside the frozen core, like the escrow
-contracts. Changes to this document need a recorded reason, as `PROTOCOL-SPEC.md`'s do.
+contracts. **Deployed on Robinhood Chain mainnet (4663) on 2026-10-21** with everything in §1–§12,
+as on its testnet; the addresses are `imageBoardDeploymentFor` in `@websitekit/sdk/image-boards`. Changes to this document need a recorded reason, as `PROTOCOL-SPEC.md`'s do.
 
 **Why the board and not the block.** A token per block made one board hundreds of marketplace
 listings of unrelated pictures. One token per board is one listing whose picture is the whole board,

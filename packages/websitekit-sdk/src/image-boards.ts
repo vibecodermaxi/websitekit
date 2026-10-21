@@ -8,9 +8,8 @@
  * numbered from 1, moved only by its owner. Blocks are called `tokenId` in this API — they were
  * tokens once — and a board's own token is `boardToken`, so the two never share a name.
  *
- * **Testnet only for now.** `IMAGE_BOARD_DEPLOYMENTS` names Robinhood Chain Testnet (46630) alone, and
- * `imageBoardDeploymentFor` throws for any other chain, mainnet included, rather than answering
- * with another chain's addresses. Mainnet arrives as an entry here and a release, nothing else.
+ * **Deployed on Robinhood Chain (4663) and its testnet (46630).** `imageBoardDeploymentFor` throws
+ * for any other chain rather than answering with another chain's addresses.
  *
  * Builders return a `CallRequest` and never send; nothing here holds a wallet. Reads take the
  * client as an argument and are plain `readContract` calls, so a client with `batch.multicall`
@@ -64,8 +63,8 @@ export interface ImageBoardDeployment {
 }
 
 /**
- * Robinhood Chain Testnet, deployed 2026-10-14 by `scripts/deploy-image-boards.ts`: the takeovers
- * generation — any sold square can be bought from its owner, on terms each board's creator chose.
+ * Robinhood Chain Testnet, deployed by `scripts/deploy-image-boards.ts`: the renting generation
+ * (2026-10-20) — the same bytecode as mainnet's.
  * Its collection takes its name and symbol from its deployer (read them with `name()` and
  * `symbol()`). Its token is a `TestUSD` with EIP-2612 `permit` — not `ROBINHOOD_TESTNET_TUSD`,
  * which page boards settle in and which has none. Verified on Blockscout.
@@ -80,8 +79,25 @@ export const ROBINHOOD_TESTNET_IMAGE_BOARDS: ImageBoardDeployment = {
   explorer: 'https://explorer.testnet.chain.robinhood.com',
 };
 
-/** Image boards, by chain. Testnet only until mainnet is deployed. */
+/**
+ * Robinhood Chain, deployed 2026-10-21 by `scripts/deploy-image-boards.ts`: the renting generation
+ * (spec §12), with zones, kept squares, resale, several areas, lowered prices and takeovers. The
+ * collection is owned by the protocol's deployer; its token is real USDG
+ * (`ROBINHOOD_MAINNET_USDG`). Verified on Sourcify, creation and runtime an exact match.
+ */
+export const ROBINHOOD_MAINNET_IMAGE_BOARDS: ImageBoardDeployment = {
+  chainId: 4663,
+  implementation: '0x371280eb4c72409ac3bb73da46573b03e04852da',
+  collection: '0x8af06f713bd23c270adbfae2de735c1fd4abf275',
+  token: '0x5fc5360d0400a0fd4f2af552add042d716f1d168',
+  decimals: 6,
+  mintable: false,
+  explorer: 'https://robinhoodchain.blockscout.com',
+};
+
+/** Image boards, by chain. */
 export const IMAGE_BOARD_DEPLOYMENTS: Readonly<Record<number, ImageBoardDeployment>> = {
+  [ROBINHOOD_MAINNET_IMAGE_BOARDS.chainId]: ROBINHOOD_MAINNET_IMAGE_BOARDS,
   [ROBINHOOD_TESTNET_IMAGE_BOARDS.chainId]: ROBINHOOD_TESTNET_IMAGE_BOARDS,
 };
 
