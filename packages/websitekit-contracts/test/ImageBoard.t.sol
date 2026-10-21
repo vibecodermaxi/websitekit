@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
 import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardCollection } from "../src/ImageBoardCollection.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
@@ -23,7 +24,7 @@ contract ImageBoardTest is ImageBoardBase {
         assertEq(rows, 67);
         assertEq(board.seller(), seller);
         assertEq(board.cellPrice(), CELL_PRICE);
-        assertEq(board.imageHash(), keccak256("original image bytes"));
+        assertEq(board.imageHash(), SOURCE_HASH);
     }
 
     function test_eachCellSizeDerivesItsOwnGrid() public {
@@ -48,12 +49,12 @@ contract ImageBoardTest is ImageBoardBase {
         assertEq(board.MIN_CELL_SIZE(), 10);
         assertEq(board.MAX_CELL_SIZE(), 200);
 
-        ImageBoard.Config memory cfg = _config(400, 400, 9);
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        ImageBoardStorage.Config memory cfg = _config(400, 400, 9);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg.cellSize = 201;
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         collection.createBoardFor(seller, abi.encode(cfg));
     }
 
@@ -62,18 +63,18 @@ contract ImageBoardTest is ImageBoardBase {
         (uint16 cols,) = _create(_config(2569, 100, 10)).gridSize();
         assertEq(cols, 256);
 
-        ImageBoard.Config memory cfg = _config(2570, 100, 10);
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        ImageBoardStorage.Config memory cfg = _config(2570, 100, 10);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         collection.createBoardFor(seller, abi.encode(cfg));
     }
 
     function test_anImageSmallerThanOneCellIsRefused() public {
-        ImageBoard.Config memory narrow = _config(9, 100, 10);
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        ImageBoardStorage.Config memory narrow = _config(9, 100, 10);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         collection.createBoardFor(seller, abi.encode(narrow));
 
-        ImageBoard.Config memory short_ = _config(100, 9, 10);
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        ImageBoardStorage.Config memory short_ = _config(100, 9, 10);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         collection.createBoardFor(seller, abi.encode(short_));
     }
 
@@ -85,24 +86,24 @@ contract ImageBoardTest is ImageBoardBase {
         (, rows) = _create(_config(100, 20_019, 20)).gridSize();
         assertEq(rows, 1_000);
 
-        ImageBoard.Config memory cfg = _config(100, 10_010, 10);
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        ImageBoardStorage.Config memory cfg = _config(100, 10_010, 10);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg = _config(100, 15_015, 15);
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         collection.createBoardFor(seller, abi.encode(cfg));
     }
 
     function test_aZeroPriceOrHashOrSellerIsRefused() public {
-        ImageBoard.Config memory cfg = _config(300, 300, 10);
+        ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
         cfg.cellPrice = 0;
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg = _config(300, 300, 10);
         cfg.imageHash = bytes32(0);
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         collection.createBoardFor(seller, abi.encode(cfg));
 
         cfg = _config(300, 300, 10);
@@ -111,7 +112,7 @@ contract ImageBoardTest is ImageBoardBase {
     }
 
     function test_aTokenNotAllowedIsRefused() public {
-        ImageBoard.Config memory cfg = _config(300, 300, 10);
+        ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
         cfg.settlementToken = makeAddr("some other token");
         vm.expectRevert(ImageBoardCollection.TokenNotAllowed.selector);
         collection.createBoardFor(seller, abi.encode(cfg));
@@ -124,14 +125,14 @@ contract ImageBoardTest is ImageBoardBase {
     }
 
     function test_aBoardCannotBeInitializedTwice() public {
-        ImageBoard.Config memory cfg = _config(300, 300, 10);
-        vm.expectRevert(ImageBoard.AlreadyInitialized.selector);
+        ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
+        vm.expectRevert(ImageBoardStorage.AlreadyInitialized.selector);
         board.initialize(1, seller, abi.encode(cfg));
     }
 
     function test_theImplementationCannotBeInitialized() public {
-        ImageBoard.Config memory cfg = _config(300, 300, 10);
-        vm.expectRevert(ImageBoard.AlreadyInitialized.selector);
+        ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
+        vm.expectRevert(ImageBoardStorage.AlreadyInitialized.selector);
         implementation.initialize(1, seller, abi.encode(cfg));
     }
 
@@ -143,7 +144,9 @@ contract ImageBoardTest is ImageBoardBase {
     function test_theBlockGoesToTheRecipientNotThePayer() public {
         uint256 id = _buy(alice, bob, 0, 0, 2, 3);
         assertEq(board.ownerOf(id), bob);
-        assertEq(board.ownerOf(id + 1), address(0), "an id never sold has no owner");
+        // ERC-721: an id never sold has no owner to answer with.
+        vm.expectRevert(ImageBoardStorage.NoSuchBlock.selector);
+        board.ownerOf(id + 1);
     }
 
     function test_theChargeIsCellsTimesPriceAndTheCutRoundsDown() public {
@@ -157,7 +160,7 @@ contract ImageBoardTest is ImageBoardBase {
 
     function test_theBlockIsRecordedWithItsShape() public {
         uint256 id = _buy(alice, alice, 7, 9, 4, 2);
-        ImageBoard.Block memory b = board.blockOf(id);
+        ImageBoardStorage.Block memory b = board.blockOf(id);
         assertEq(b.col, 7);
         assertEq(b.row, 9);
         assertEq(b.cols, 4);
@@ -180,7 +183,7 @@ contract ImageBoardTest is ImageBoardBase {
         uint256 id = _buy(alice, alice, 0, 0, 30, 67);
         assertEq(board.ownerOf(id), alice);
         assertEq(board.freeCells(), 0);
-        assertEq(board.blockError(0, 0, 1, 1), ImageBoard.CoolingDown.selector);
+        assertEq(board.blockError(0, 0, 1, 1), ImageBoardStorage.CoolingDown.selector);
     }
 
     /// 256 across exercises the all-ones mask, where `1 << 256` would be zero.
@@ -200,31 +203,31 @@ contract ImageBoardTest is ImageBoardBase {
 
     function test_oneCellPastTheGridIsRefused() public {
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.OutsideGrid.selector);
+        vm.expectRevert(ImageBoardStorage.OutsideGrid.selector);
         board.buyBlocks(alice, _one(29, 0, 2, 1), type(uint256).max, block.timestamp); // into the unsold strip on the right
 
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.OutsideGrid.selector);
+        vm.expectRevert(ImageBoardStorage.OutsideGrid.selector);
         board.buyBlocks(alice, _one(0, 66, 1, 2), type(uint256).max, block.timestamp); // below the last whole row
 
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.OutsideGrid.selector);
+        vm.expectRevert(ImageBoardStorage.OutsideGrid.selector);
         board.buyBlocks(alice, _one(30, 0, 1, 1), type(uint256).max, block.timestamp);
     }
 
     /// uint16 arithmetic would wrap here; the bound is computed wide.
     function test_aRectangleThatWouldWrapIsOutsideTheGrid() public {
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.OutsideGrid.selector);
+        vm.expectRevert(ImageBoardStorage.OutsideGrid.selector);
         board.buyBlocks(alice, _one(type(uint16).max, 0, 2, 1), type(uint256).max, block.timestamp);
     }
 
     function test_anEmptyBlockIsRefused() public {
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.EmptyBlock.selector);
+        vm.expectRevert(ImageBoardStorage.EmptyBlock.selector);
         board.buyBlocks(alice, _one(0, 0, 0, 1), type(uint256).max, block.timestamp);
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.EmptyBlock.selector);
+        vm.expectRevert(ImageBoardStorage.EmptyBlock.selector);
         board.buyBlocks(alice, _one(0, 0, 1, 0), type(uint256).max, block.timestamp);
     }
 
@@ -233,7 +236,7 @@ contract ImageBoardTest is ImageBoardBase {
         _buy(alice, alice, 10, 10, 3, 3);
         vm.warp(block.timestamp + 3_600 - 1);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.CoolingDown.selector);
+        vm.expectRevert(ImageBoardStorage.CoolingDown.selector);
         board.buyBlocks(bob, _one(12, 12, 3, 3), type(uint256).max, block.timestamp); // shares only (12, 12)
 
         vm.warp(block.timestamp + 1);
@@ -256,7 +259,7 @@ contract ImageBoardTest is ImageBoardBase {
         uint256 balance = usd.balanceOf(bob);
 
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.CoolingDown.selector);
+        vm.expectRevert(ImageBoardStorage.CoolingDown.selector);
         board.buyBlocks(bob, _one(4, 5, 3, 3), type(uint256).max, block.timestamp); // rows 5 and 7 are free; row 6 collides
 
         assertEq(board.rowBits(5), row5);
@@ -267,7 +270,7 @@ contract ImageBoardTest is ImageBoardBase {
 
     function test_aZeroRecipientIsRefused() public {
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.ZeroAddress.selector);
+        vm.expectRevert(ImageBoardStorage.ZeroAddress.selector);
         board.buyBlocks(address(0), _one(0, 0, 1, 1), type(uint256).max, block.timestamp);
     }
 
@@ -282,9 +285,9 @@ contract ImageBoardTest is ImageBoardBase {
     /// `blockError` is the one gate: whatever it says, the buy does.
     function test_blockErrorNamesExactlyWhatTheBuyRefusesWith() public {
         _buy(alice, alice, 0, 0, 2, 2);
-        assertEq(board.blockError(1, 1, 2, 2), ImageBoard.CoolingDown.selector);
-        assertEq(board.blockError(29, 0, 2, 1), ImageBoard.OutsideGrid.selector);
-        assertEq(board.blockError(0, 0, 0, 1), ImageBoard.EmptyBlock.selector);
+        assertEq(board.blockError(1, 1, 2, 2), ImageBoardStorage.CoolingDown.selector);
+        assertEq(board.blockError(29, 0, 2, 1), ImageBoardStorage.OutsideGrid.selector);
+        assertEq(board.blockError(0, 0, 0, 1), ImageBoardStorage.EmptyBlock.selector);
         assertEq(board.blockError(2, 0, 2, 2), bytes4(0));
     }
 
@@ -347,7 +350,7 @@ contract ImageBoardTest is ImageBoardBase {
         board.edit(id, keccak256("one"));
         vm.prank(alice);
         board.edit(id, keccak256("two"));
-        ImageBoard.Block memory b = board.blockOf(id);
+        ImageBoardStorage.Block memory b = board.blockOf(id);
         assertEq(b.contentHash, keccak256("two"));
         assertEq(b.version, 2);
     }
@@ -355,11 +358,11 @@ contract ImageBoardTest is ImageBoardBase {
     function test_anyoneElseCannotEdit() public {
         uint256 id = _buy(alice, alice, 0, 0, 1, 1);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotBlockEditor.selector);
+        vm.expectRevert(ImageBoardStorage.NotBlockEditor.selector);
         board.edit(id, keccak256("x"));
 
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.NotBlockOwner.selector);
+        vm.expectRevert(ImageBoardStorage.NotBlockOwner.selector);
         board.edit(99, keccak256("x"));
     }
 
@@ -376,7 +379,7 @@ contract ImageBoardTest is ImageBoardBase {
     function test_onlyTheOwnerGrants() public {
         uint256 id = _buy(alice, alice, 0, 0, 1, 1);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotBlockOwner.selector);
+        vm.expectRevert(ImageBoardStorage.NotBlockOwner.selector);
         board.setEditor(id, bob);
     }
 
@@ -387,16 +390,16 @@ contract ImageBoardTest is ImageBoardBase {
         board.setEditor(id, relayer);
 
         vm.prank(alice);
-        board.transferBlock(id, bob);
+        board.transferFrom(alice, bob, id);
         assertFalse(board.canEdit(id, relayer), "the new owner did not grant it");
 
         vm.prank(bob);
-        board.transferBlock(id, alice);
+        board.transferFrom(bob, alice, id);
         assertFalse(board.canEdit(id, relayer), "and it does not revive on return");
         assertEq(board.editorOf(id), address(0));
 
         vm.prank(relayer);
-        vm.expectRevert(ImageBoard.NotBlockEditor.selector);
+        vm.expectRevert(ImageBoardStorage.NotBlockEditor.selector);
         board.edit(id, keccak256("x"));
     }
 
@@ -408,12 +411,12 @@ contract ImageBoardTest is ImageBoardBase {
         board.setEditorWithSig(id, relayer, deadline, sig);
         assertTrue(board.canEdit(id, relayer));
 
-        vm.expectRevert(ImageBoard.InvalidSignature.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidSignature.selector);
         board.setEditorWithSig(id, relayer, deadline, sig); // the nonce moved on
 
         bytes memory late = _grantSig(alicePk, id, bob, 1, deadline);
         vm.warp(deadline + 1);
-        vm.expectRevert(ImageBoard.DeadlineExpired.selector);
+        vm.expectRevert(ImageBoardStorage.DeadlineExpired.selector);
         board.setEditorWithSig(id, bob, deadline, late);
     }
 
@@ -421,7 +424,7 @@ contract ImageBoardTest is ImageBoardBase {
         uint256 id = _buy(alice, alice, 0, 0, 1, 1);
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _grantSig(bobPk, id, bob, 0, deadline);
-        vm.expectRevert(ImageBoard.InvalidSignature.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidSignature.selector);
         board.setEditorWithSig(id, bob, deadline, sig);
     }
 
@@ -448,14 +451,6 @@ contract ImageBoardTest is ImageBoardBase {
     // Royalty, metadata, withdrawals
     // ---------------------------------------------------------------------
 
-    function test_aBlockIsNotAToken() public view {
-        // No ERC-721 on the board: nothing for a marketplace to list per block.
-        (bool ok,) = address(board).staticcall(abi.encodeWithSignature("supportsInterface(bytes4)", bytes4(0x80ac58cd)));
-        assertFalse(ok, "a board answers supportsInterface");
-        (ok,) = address(board).staticcall(abi.encodeWithSignature("balanceOf(address)", alice));
-        assertFalse(ok, "a board answers balanceOf");
-    }
-
     function test_withdrawForPaysTheAccountWhoeverCalls() public {
         _buy(alice, alice, 0, 0, 10, 10);
         uint256 owedSeller = board.pendingWithdrawals(seller);
@@ -473,7 +468,7 @@ contract ImageBoardTest is ImageBoardBase {
     }
 
     function test_withdrawingNothingIsRefused() public {
-        vm.expectRevert(ImageBoard.NothingToWithdraw.selector);
+        vm.expectRevert(ImageBoardStorage.NothingToWithdraw.selector);
         board.withdrawFor(seller);
     }
 
@@ -482,7 +477,6 @@ contract ImageBoardTest is ImageBoardBase {
     // ---------------------------------------------------------------------
 
     event MetadataUpdate(uint256 _tokenId);
-    event BatchMetadataUpdate(uint256 _fromTokenId, uint256 _toTokenId);
 
     function test_creatingABoardMintsItsNFTToTheSeller() public {
         assertEq(collection.ownerOf(1), seller);
@@ -562,10 +556,6 @@ contract ImageBoardTest is ImageBoardBase {
         assertTrue(collection.supportsInterface(0x80ac58cd), "ERC-721");
     }
 
-    function test_tokenURIIsTheBasePlusTheBoardsToken() public {
-        assertEq(collection.tokenURI(1), "https://example.com/b/1");
-    }
-
     /// 2026-10-12: the name and symbol are the deployer's, so the source names no product.
     function test_theNameAndSymbolAreTheDeployersAndBothAreRequired() public {
         assertEq(collection.name(), "Test Image Boards");
@@ -600,29 +590,37 @@ contract ImageBoardTest is ImageBoardBase {
         collection.tokenURI(2);
     }
 
-    function test_onlyTheOwnerMovesTheBaseURIAndEveryTokenIsRefreshed() public {
-        vm.prank(alice);
-        vm.expectRevert();
-        collection.setBaseURI("https://elsewhere.example/");
+    /// The board's token's metadata is the board's own, built on chain: there is no base URI to move.
+    function test_theBoardTokensMetadataIsTheBoards() public view {
+        assertEq(collection.tokenURI(1), board.boardURI());
+    }
 
-        vm.expectEmit(address(collection));
-        emit BatchMetadataUpdate(1, type(uint256).max);
-        collection.setBaseURI("https://new.example/b/");
-        assertEq(collection.tokenURI(1), "https://new.example/b/1");
+    /// Ownership moves only by the two-step handover; the one-step transfer and renouncing revert.
+    function test_theCollectionChangesHandsOnlyByHandover() public {
+        vm.expectRevert(ImageBoardCollection.HandoverOnly.selector);
+        collection.transferOwnership(alice);
+        vm.expectRevert(ImageBoardCollection.HandoverOnly.selector);
+        collection.renounceOwnership();
+        assertEq(collection.owner(), address(this));
+
+        vm.prank(alice);
+        collection.requestOwnershipHandover();
+        collection.completeOwnershipHandover(alice);
+        assertEq(collection.owner(), alice);
     }
 
     // ---------------------------------------------------------------------
     // Moving a block
     // ---------------------------------------------------------------------
 
-    event BlockTransferred(uint256 indexed blockId, address indexed from, address indexed to);
+    event Transfer(address indexed from, address indexed to, uint256 indexed id);
 
     function test_theOwnerGivesABlockAway() public {
         uint256 id = _buy(alice, alice, 0, 0, 1, 1);
         vm.expectEmit(address(board));
-        emit BlockTransferred(id, alice, bob);
+        emit Transfer(alice, bob, id);
         vm.prank(alice);
-        board.transferBlock(id, bob);
+        board.transferFrom(alice, bob, id);
         assertEq(board.ownerOf(id), bob);
         assertTrue(board.canEdit(id, bob));
         assertFalse(board.canEdit(id, alice));
@@ -631,32 +629,34 @@ contract ImageBoardTest is ImageBoardBase {
     function test_nobodyElseMovesABlock() public {
         uint256 id = _buy(alice, alice, 0, 0, 1, 1);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotBlockOwner.selector);
-        board.transferBlock(id, bob);
+        vm.expectRevert(ImageBoardStorage.NotAuthorized.selector);
+        board.transferFrom(alice, bob, id);
 
         // Not the board's holder either: owning the board is not owning its blocks.
         vm.prank(seller);
-        vm.expectRevert(ImageBoard.NotBlockOwner.selector);
-        board.transferBlock(id, seller);
+        vm.expectRevert(ImageBoardStorage.NotAuthorized.selector);
+        board.transferFrom(alice, seller, id);
 
-        // Nor an editor the owner named.
+        // Nor an editor the owner named: editing is not moving.
         vm.prank(alice);
         board.setEditor(id, relayer);
         vm.prank(relayer);
-        vm.expectRevert(ImageBoard.NotBlockOwner.selector);
-        board.transferBlock(id, relayer);
+        vm.expectRevert(ImageBoardStorage.NotAuthorized.selector);
+        board.transferFrom(alice, relayer, id);
         assertEq(board.ownerOf(id), alice);
     }
 
     function test_anUnsoldBlockCannotBeMovedOrGivenToNobody() public {
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.NotBlockOwner.selector);
-        board.transferBlock(1, alice);
+        vm.expectRevert(ImageBoardStorage.NotBlockOwner.selector);
+        board.transferFrom(alice, alice, 1);
+        // A zero `from` would match an unsold id's zero owner.
+        vm.expectRevert(ImageBoardStorage.NotBlockOwner.selector);
+        board.transferFrom(address(0), alice, 1);
 
         uint256 id = _buy(alice, alice, 0, 0, 1, 1);
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.ZeroAddress.selector);
-        board.transferBlock(id, address(0));
-
+        vm.expectRevert(ImageBoardStorage.ZeroAddress.selector);
+        board.transferFrom(alice, address(0), id);
     }
 }

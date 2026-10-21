@@ -8,6 +8,8 @@ import {
   MalformedContentError,
   SCHEME_VERSION,
   SITE_DEFINED_KIND_MIN,
+  cidBytesToString,
+  cidStringToBytes,
   cidToContentHash,
   contentHashToCid,
   decodeContent,
@@ -403,5 +405,38 @@ describe('a linked object', () => {
     const result = readContent(bytes, hash);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.kind).toBe(ContentKind.Linked);
+  });
+});
+
+describe('cidBytesToString', () => {
+  it('writes a binary CIDv1 as base32 and refuses anything else', () => {
+    expect(cidBytesToString('0x01')).toBe('bae');
+    expect(cidBytesToString('0x0102030405')).toBe('baebagbaf');
+    expect(() => cidBytesToString('0x')).toThrow(/CIDv1/);
+    expect(() => cidBytesToString('0x1220ab')).toThrow(/CIDv1/);
+  });
+});
+
+describe('cidStringToBytes — a pinning service\'s CID, as the bytes a board stores', () => {
+  // The reference renderer page, as Pinata answered for it (a dag-pb directory, not a raw block).
+  const PAGE = 'bafybeib5nkolyo5xyto4ancpvkx4fwti7q3gs3pynbna5byarfo2lfcxly';
+
+  it('reads back as the string it was', () => {
+    const bytes = cidStringToBytes(PAGE);
+    expect(bytes.startsWith('0x01701220')).toBe(true);
+    expect(cidBytesToString(bytes)).toBe(PAGE);
+  });
+
+  it('a raw block is its hash', () => {
+    const hash = sha256(new TextEncoder().encode('a picture'));
+    expect(cidStringToBytes(contentHashToCid(hash))).toBe(`0x01551220${hash.slice(2)}`);
+  });
+
+  it('refuses what is not a canonical base32 CIDv1', () => {
+    expect(() => cidStringToBytes('QmT78zSuBmuS4z925WZfrqQ1qHaJ56DQaTfyMUF7F8ff5o')).toThrow(/starting "b"/);
+    expect(() => cidStringToBytes('baaaa')).toThrow(/CIDv1/);
+    expect(() => cidStringToBytes(PAGE.toUpperCase().replace(/^B/, 'b'))).toThrow(/base32 character/);
+    // Trailing bits a canonical encoder never writes: decodes, but not back to the same string.
+    expect(() => cidStringToBytes(`${PAGE.slice(0, -1)}z`)).toThrow(/canonical/);
   });
 });

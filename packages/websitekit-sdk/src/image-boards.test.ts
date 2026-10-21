@@ -12,6 +12,9 @@ import {
   buildBuyBlocks,
   buildBuyBlocksWithPermit,
   buildCreateImageBoard,
+  imageBoardTextProblem,
+  ROBINHOOD_MAINNET_IMAGE_BOARDS,
+  ROBINHOOD_TESTNET_IMAGE_BOARDS,
   blockRentQuote,
   buildClaimRent,
   buildEditRented,
@@ -26,6 +29,11 @@ import {
   buildSetBlockEditor,
   buildSetBlockEditorWithSig,
   buildTransferBlock,
+  buildApproveBlock,
+  buildSetBlockOperator,
+  buildPokeBlock,
+  pokeDue,
+  IMAGE_BOARD_DEPLOYMENTS,
   IMAGE_BLOCK_RESALE_ROYALTY_BPS,
   IMAGE_BOARD_PROTOCOL_BPS,
   IMAGE_BOARD_ROYALTY_BPS,
@@ -35,7 +43,7 @@ import {
   splitSignature,
   type CreateImageBoardOptions,
 } from './image-boards';
-import { settlementTokenFor } from './settlement';
+import { ROBINHOOD_MAINNET_USDG } from './settlement';
 
 const BOARD = '0x00000000000000000000000000000000000b0a2d' as Address;
 const COLLECTION = '0x0000000000000000000000000000000000c011ec' as Address;
@@ -68,8 +76,10 @@ function createOptions(overrides: Partial<CreateImageBoardOptions> = {}): Create
     cellSize: 10,
     cellPrice: 10_003n,
     imageHash: keccak256(toHex('img')),
+    sourceCid: '0x01551220ab',
+    name: 'A board',
+    description: '',
     zones: [],
-    kept: [],
     terms: STANDARD,
     ...overrides,
   };
@@ -98,17 +108,28 @@ describe('buildCreateImageBoard', () => {
     expect(() => buildCreateImageBoard(createOptions({ imageHash: `0x${'0'.repeat(64)}` as Hex }))).toThrow(/hash/);
   });
 
-  it('carries the zones and kept blocks through the ABI', () => {
+  it('carries the zones, the name, the description and the source CID through the ABI', () => {
     const zones = [{ col: 0, row: 0, cols: 4, rows: 3, cellPrice: 30_011n }];
-    const kept = [{ col: 10, row: 10, cols: 2, rows: 2 }];
-    const decoded = roundTrip(buildCreateImageBoard(createOptions({ zones, kept })));
-    expect(configOf(decoded)).toMatchObject({ zones, kept });
+    const decoded = roundTrip(buildCreateImageBoard(createOptions({ zones, name: 'Ünïcode "quoted"', description: 'About it.', sourceCid: '0x0170122001' })));
+    expect(configOf(decoded)).toMatchObject({ zones, name: 'Ünïcode "quoted"', description: 'About it.', sourceCid: '0x0170122001' });
+  });
+
+  /** The contract counts BYTES: a name of 50 two-byte letters is 100 bytes, and one more is refused. */
+  it('refuses a name, description or source CID the contract would refuse', () => {
+    expect(() => buildCreateImageBoard(createOptions({ name: '' }))).toThrow(/name/);
+    expect(() => buildCreateImageBoard(createOptions({ name: 'é'.repeat(50) }))).not.toThrow();
+    expect(() => buildCreateImageBoard(createOptions({ name: 'é'.repeat(50) + 'a' }))).toThrow(/name/);
+    expect(() => buildCreateImageBoard(createOptions({ description: 'a'.repeat(1_000) }))).not.toThrow();
+    expect(() => buildCreateImageBoard(createOptions({ description: 'a'.repeat(1_001) }))).toThrow(/description/);
+    expect(() => buildCreateImageBoard(createOptions({ sourceCid: '0x' }))).toThrow(/CID/);
+    expect(() => buildCreateImageBoard(createOptions({ sourceCid: '0x0055' }))).toThrow(/CID/);
+    expect(() => buildCreateImageBoard(createOptions({ sourceCid: `0x01${'00'.repeat(64)}` as Hex }))).toThrow(/CID/);
+    expect(() => buildCreateImageBoard(createOptions({ sourceCid: `0x01${'00'.repeat(63)}` as Hex }))).not.toThrow();
   });
 
   it('refuses a layout the contract would refuse, and a zone price that would not encode', () => {
     const zone = { col: 0, row: 0, cols: 3, rows: 3, cellPrice: 1n };
     expect(() => buildCreateImageBoard(createOptions({ zones: [zone, { ...zone, col: 2 }] }))).toThrow(/zones-overlap at 1/);
-    expect(() => buildCreateImageBoard(createOptions({ kept: [{ col: 29, row: 0, cols: 2, rows: 1 }] }))).toThrow(/kept-outside at 0/);
     expect(() => buildCreateImageBoard(createOptions({ zones: [{ ...zone, cellPrice: 1n << 192n }] }))).toThrow(/out of range/);
     expect(() => buildCreateImageBoard(createOptions({ zones: [{ ...zone, cellPrice: (1n << 192n) - 1n }] }))).not.toThrow();
   });
@@ -243,37 +264,34 @@ describe('holder calls', () => {
     expect(
       roundTrip(buildSetBlockEditorWithSig({ board: BOARD, tokenId: 2n, editor: SELLER, deadline: 7n, signature: sig })).args,
     ).toEqual([2n, SELLER, 7n, sig]);
-    // A block moves by `transferBlock(blockId, to)`, its owner's own call — it is not a token.
-    const give = buildTransferBlock({ board: BOARD, tokenId: 2n, to: BUYER });
-    expect(give.functionName).toBe('transferBlock');
-    expect(roundTrip(give).args).toEqual([2n, BUYER]);
-    expect(() => buildTransferBlock({ board: BOARD, tokenId: 2n, to: ZERO })).toThrow(/given to someone/);
+    // A block is an ERC-721: it moves by `transferFrom(from, to, id)`, sent by its owner or anyone they approved.
+    const give = buildTransferBlock({ board: BOARD, from: SELLER, tokenId: 2n, to: BUYER });
+    expect(give.functionName).toBe('transferFrom');
+    expect(roundTrip(give).args).toEqual([SELLER, BUYER, 2n]);
+    expect(() => buildTransferBlock({ board: BOARD, from: SELLER, tokenId: 2n, to: ZERO })).toThrow(/given to someone/);
+    expect(() => buildTransferBlock({ board: BOARD, from: ZERO, tokenId: 2n, to: BUYER })).toThrow(/moved from/);
+    expect(roundTrip(buildApproveBlock({ board: BOARD, spender: BUYER, tokenId: 2n })).args).toEqual([BUYER, 2n]);
+    expect(roundTrip(buildSetBlockOperator({ board: BOARD, operator: BUYER, approved: true })).args).toEqual([BUYER, true]);
+    expect(roundTrip(buildPokeBlock({ board: BOARD, tokenId: 2n })).args).toEqual([2n]);
     const withdraw = buildImageBoardWithdrawFor({ board: BOARD, account: SELLER });
     expect(withdraw.abi).toBe(IMAGE_BOARD_ABI);
     expect(roundTrip(withdraw).args).toEqual([SELLER]);
   });
 });
 
-/** Mainnet arrived 2026-10-21. Each chain answers with its own addresses; any other chain is refused by name. */
+/**
+ * The token generation (spec §13) is on both chains. Mainnet settles in real USDG — the same address
+ * the page boards settle in, since token identity is the address — and nothing there is mintable.
+ */
 describe('imageBoardDeploymentFor', () => {
-  it('names each chain its own deployment, and refuses any other chain by name', () => {
-    const main = imageBoardDeploymentFor(4663);
-    const test = imageBoardDeploymentFor(46630);
-    expect(main).toMatchObject({ chainId: 4663, decimals: 6, mintable: false });
-    expect(test).toMatchObject({ chainId: 46630, decimals: 6, mintable: true });
-    for (const d of [main, test]) {
-      for (const a of [d.implementation, d.collection, d.token]) expect(a).toMatch(/^0x[0-9a-f]{40}$/);
-    }
-    // Never another chain's addresses.
-    expect([main.implementation, main.collection, main.token]).not.toContain(test.implementation);
-    expect(main.collection).not.toBe(test.collection);
-    expect(main.token).not.toBe(test.token);
+  it('answers both chains with the token generation, and refuses any other by name', () => {
+    expect(Object.keys(IMAGE_BOARD_DEPLOYMENTS).sort()).toEqual(['4663', '46630']);
+    expect(imageBoardDeploymentFor(46630)).toBe(ROBINHOOD_TESTNET_IMAGE_BOARDS);
+    expect(imageBoardDeploymentFor(46630).mintable).toBe(true);
+    expect(imageBoardDeploymentFor(4663)).toBe(ROBINHOOD_MAINNET_IMAGE_BOARDS);
+    expect(imageBoardDeploymentFor(4663).mintable).toBe(false);
+    expect(imageBoardDeploymentFor(4663).token).toBe(ROBINHOOD_MAINNET_USDG.address);
     expect(() => imageBoardDeploymentFor(1)).toThrow('websitekit: image boards are not deployed on chain 1. Deployed chains: 4663, 46630.');
-  });
-
-  it("settles mainnet boards in the chain's real dollar, never a mintable stand-in", () => {
-    expect(imageBoardDeploymentFor(4663).token).toBe(settlementTokenFor(4663).address);
-    expect(settlementTokenFor(4663).mintable).toBe(false);
   });
 });
 
@@ -281,7 +299,8 @@ describe('the cut and the royalties the contracts carry', () => {
   const read = (file: string) => readFileSync(new URL(file, import.meta.url), 'utf8');
   it('are the constants in the Solidity, and the protocol cut the deploy script insists on', () => {
     const collection = read('../../websitekit-contracts/src/ImageBoardCollection.sol');
-    const board = read('../../websitekit-contracts/src/ImageBoard.sol');
+    // The board's constants are declared in its storage base, which the board and its extension share.
+    const board = read('../../websitekit-contracts/src/ImageBoardStorage.sol');
     const deploy = read('../scripts/deploy-image-boards.ts');
     expect(collection.match(/ROYALTY_BPS = (\d+);/)?.[1]).toBe(String(IMAGE_BOARD_ROYALTY_BPS));
     expect(board.match(/RESALE_ROYALTY_BPS = (\d+);/)?.[1]).toBe(String(IMAGE_BLOCK_RESALE_ROYALTY_BPS));
@@ -335,10 +354,41 @@ describe('renting a block (2026-10-20)', () => {
   });
 
   it('ends a term AT its expiry, and streams linearly to it', () => {
-    const rental = { tenant: SELLER, start: 1_000n, expiry: 1_100n, prepaid: 1_000n, claimed: 200n, tenantHash: `0x${'00'.repeat(32)}` as Hex };
+    const rental = { tenant: SELLER, start: 1_000n, expiry: 1_100n, prepaid: 1_000n, claimed: 200n, tenantHash: `0x${'00'.repeat(32)}` as Hex, poked: false };
     expect(rentalLive(rental, 1_099n)).toBe(true);
     expect(rentalLive(rental, 1_100n)).toBe(false);
     expect(rentUnclaimed(rental, 1_050n)).toBe(300n); // 500 streamed, 200 already credited
     expect(rentUnclaimed(rental, 9_999n)).toBe(800n); // stops at the end
+  });
+
+  it('says a poke is due only after a term that showed a tenant picture, and only once', () => {
+    const picture = `0x${'ab'.repeat(32)}` as Hex;
+    const none = `0x${'00'.repeat(32)}` as Hex;
+    expect(pokeDue({ expiry: 1_100n, tenantHash: picture, poked: false }, 1_099n)).toBe(false);
+    expect(pokeDue({ expiry: 1_100n, tenantHash: picture, poked: false }, 1_100n)).toBe(true);
+    expect(pokeDue({ expiry: 1_100n, tenantHash: none, poked: false }, 1_100n)).toBe(false);
+    expect(pokeDue({ expiry: 1_100n, tenantHash: picture, poked: true }, 1_100n)).toBe(false);
+    expect(pokeDue({ expiry: 0n, tenantHash: picture, poked: false }, 1_100n)).toBe(false);
+  });
+});
+
+describe('imageBoardTextProblem — bytes, as initialize counts them', () => {
+  it('a name is 1 to 100 bytes', () => {
+    expect(imageBoardTextProblem('', '')).toBe('name');
+    expect(imageBoardTextProblem('a'.repeat(100), '')).toBeNull();
+    expect(imageBoardTextProblem('a'.repeat(101), '')).toBe('name');
+    // 25 four-byte emoji are 100 bytes; one more letter is over, though it is 26 "characters".
+    expect(imageBoardTextProblem('🟦'.repeat(25), '')).toBeNull();
+    expect(imageBoardTextProblem(`${'🟦'.repeat(25)}a`, '')).toBe('name');
+  });
+
+  it('a description is at most 1,000 bytes, and may be empty', () => {
+    expect(imageBoardTextProblem('n', 'é'.repeat(500))).toBeNull();
+    expect(imageBoardTextProblem('n', `${'é'.repeat(500)}a`)).toBe('description');
+  });
+
+  it('the builder refuses what it refuses', () => {
+    expect(() => buildCreateImageBoard({ ...createOptions(), name: 'a'.repeat(101) })).toThrow(/1 to 100 bytes/);
+    expect(() => buildCreateImageBoard({ ...createOptions(), description: 'a'.repeat(1_001) })).toThrow(/1,000/);
   });
 });

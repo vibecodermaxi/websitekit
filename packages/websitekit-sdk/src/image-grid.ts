@@ -2,7 +2,7 @@
  * The image-board grid rule, in TypeScript (`docs/IMAGE-BOARD-SPEC.md`).
  *
  * **A twin of `ImageBoard.sol`**: `gridOf` is its `initialize` geometry, `layoutProblem` what its
- * `initialize` refuses of zones and kept blocks, `buyError` its `buyError` (and `blockError` its
+ * `initialize` refuses of zones, `buyError` its `buyError` (and `blockError` its
  * one-rectangle `blockError`), and `quoteBlocks` and `quote` its own. The two runtimes cannot
  * import each other, so they are pinned by one fixture — `GenImageGridVectors.s.sol` writes the
  * contract's answers and `image-grid.vectors.test.ts` asserts this file against every line. Change a
@@ -14,7 +14,8 @@
  * this is its preview.
  *
  * **Any cell can be bought** (2026-10-14, spec §11): free, or held by a block, which a buy then
- * takes — except a kept block's while its creator owns it, and a block's still in its cooldown.
+ * takes — except a block's still in its cooldown. (Kept squares were removed with spec §13,
+ * 2026-10-21.)
  * What a sold cell costs moves with time (reversion is weekly), so every price here takes `now`,
  * in seconds, as the chain's clock would read it.
  *
@@ -80,7 +81,6 @@ export type BlockErrorName =
   | 'EmptyBlock'
   | 'OutsideGrid'
   | 'CellsTaken'
-  | 'CellsKept'
   | 'CoolingDown'
   | 'TooLarge'
   | 'TooManyBlocks';
@@ -97,9 +97,9 @@ export interface TakeTerms {
 /** What pricing a take needs to know of a block. */
 export interface Holding {
   owner: string;
-  /** What the block cost over the creation price of its cells, in bps, rounded up (10,000 for a kept block). */
+  /** What the block cost over the creation price of its cells, in bps, rounded up. */
   level: bigint;
-  /** When it was bought or kept, in seconds. A resale or a gift does not move it. */
+  /** When it was bought, in seconds. A resale or a gift does not move it. */
   boughtAt: bigint;
 }
 
@@ -115,10 +115,6 @@ export interface GridState {
   /** What share of the creation prices a FREE square costs now. Sold cells never see it. */
   priceBps: number;
   terms: TakeTerms;
-  /** Who the board was created for: the owner of its kept blocks. */
-  creator: string;
-  /** Kept blocks are ids `1..keptCount`. */
-  keptCount: number;
   cells: CellMap;
   /** Every block a cell names, by id. */
   blocks: ReadonlyMap<number, Holding>;
@@ -244,13 +240,12 @@ function pricesOf(state: GridState, k: Rect): bigint[] {
 /**
  * The contract's `_survey`: the rectangle's cells tallied by the block holding them, each at its
  * creation price. A block met for the first time is checked, in this order — the buy's block cap,
- * kept, cooling down — and its floor level read; the first refusal ends the survey.
+ * cooling down — and its floor level read; the first refusal ends the survey.
  */
 function survey(state: GridState, k: Rect, now: bigint, takenSoFar: number): Survey {
   const v: Survey = { error: 'none', base: 0n, freeBase: 0n, free: 0, parts: [] };
   const prices = pricesOf(state, k);
   const seen = new Map<number, number>();
-  const creator = state.creator.toLowerCase();
   for (let r = k.row; r < k.row + k.rows; r++) {
     for (let c = k.col; c < k.col + k.cols; c++) {
       const price = prices[(r - k.row) * k.cols + c - k.col]!;
@@ -270,7 +265,6 @@ function survey(state: GridState, k: Rect, now: bigint, takenSoFar: number): Sur
       if (takenSoFar + v.parts.length === MAX_BLOCKS_TAKEN_PER_BUY) return { ...v, error: 'TooManyBlocks' };
       const held = state.blocks.get(id);
       if (!held) throw new Error(`image grid: cell ${c},${r} names block ${id}, which the state does not carry`);
-      if (id <= state.keptCount && held.owner.toLowerCase() === creator) return { ...v, error: 'CellsKept' };
       if (now < held.boughtAt + BigInt(state.terms.cooldownSecs)) return { ...v, error: 'CoolingDown' };
       const weeks = now > held.boughtAt ? (now - held.boughtAt) / SECONDS_PER_WEEK : 0n;
       const { effectiveFloor } = computeTakePrice(
@@ -405,40 +399,24 @@ function maskOf(col: number, cols: number): bigint {
   return ((1n << BigInt(cols)) - 1n) << BigInt(col);
 }
 
-/** Why a set of zones and kept blocks would be refused at creation, naming which one. */
-export type LayoutProblem =
-  | 'too-many-zones'
-  | 'zone-price'
-  | 'zone-empty'
-  | 'zone-outside'
-  | 'zones-overlap'
-  | 'kept-empty'
-  | 'kept-outside'
-  | 'kept-overlap';
+/** Why a set of zones would be refused at creation, naming which one. */
+export type LayoutProblem = 'too-many-zones' | 'zone-price' | 'zone-empty' | 'zone-outside' | 'zones-overlap';
 
 /** The error the contract's `initialize` reverts with for each, which the vectors pin. */
-export const LAYOUT_ERROR: Record<LayoutProblem, 'InvalidConfig' | Exclude<BlockErrorName, 'none'>> = {
+export const LAYOUT_ERROR: Record<LayoutProblem, 'InvalidConfig'> = {
   'too-many-zones': 'InvalidConfig',
   'zone-price': 'InvalidConfig',
   'zone-empty': 'InvalidConfig',
   'zone-outside': 'InvalidConfig',
   'zones-overlap': 'InvalidConfig',
-  'kept-empty': 'EmptyBlock',
-  'kept-outside': 'OutsideGrid',
-  'kept-overlap': 'CellsTaken',
 };
 
 /**
- * The contract's checks on a new board's zones and kept blocks, in its order: the zone count, then
- * each zone (price and size, then the grid, then the zones before it), then each kept block (empty,
- * then the grid, then the kept blocks before it — `_keep`). A zone may lie over kept cells. `index` is the zone's or
- * the kept block's place in its list; null means the contract would accept the layout.
+ * The contract's checks on a new board's zones, in its order: the count, then each zone (price and
+ * size, then the grid, then the zones before it). `index` is the zone's place in its list; null
+ * means the contract would accept them.
  */
-export function layoutProblem(
-  grid: Grid,
-  zones: readonly Zone[],
-  kept: readonly Rect[],
-): { problem: LayoutProblem; index: number } | null {
+export function layoutProblem(grid: Grid, zones: readonly Zone[]): { problem: LayoutProblem; index: number } | null {
   if (zones.length > MAX_ZONES) return { problem: 'too-many-zones', index: MAX_ZONES };
   const covered = new Map<number, bigint>();
   for (const [index, z] of zones.entries()) {
@@ -450,16 +428,6 @@ export function layoutProblem(
       if (((covered.get(r) ?? 0n) & mask) !== 0n) return { problem: 'zones-overlap', index };
       covered.set(r, (covered.get(r) ?? 0n) | mask);
     }
-  }
-  const taken = new Map<number, bigint>();
-  for (const [index, k] of kept.entries()) {
-    if (k.cols === 0 || k.rows === 0) return { problem: 'kept-empty', index };
-    if (k.col + k.cols > grid.cols || k.row + k.rows > grid.rows) return { problem: 'kept-outside', index };
-    const mask = maskOf(k.col, k.cols);
-    for (let r = k.row; r < k.row + k.rows; r++) {
-      if (((taken.get(r) ?? 0n) & mask) !== 0n) return { problem: 'kept-overlap', index };
-    }
-    for (let r = k.row; r < k.row + k.rows; r++) taken.set(r, (taken.get(r) ?? 0n) | mask);
   }
   return null;
 }

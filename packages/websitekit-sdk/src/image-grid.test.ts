@@ -65,7 +65,6 @@ describe('gridOf', () => {
 
 const A = '0x00000000000000000000000000000000000a11ce';
 const B = '0x0000000000000000000000000000000000000b0b';
-const CREATOR = '0x0000000000000000000000000000000000005e11';
 const HOUR = 3_600n;
 const WEEK = 604_800n;
 const T0 = 1_000_000n;
@@ -86,8 +85,6 @@ function board(blocks: { rect: Rect; owner: string; level?: bigint; at?: bigint 
     zones: [],
     priceBps: FULL_PRICE_BPS,
     terms: STANDARD,
-    creator: CREATOR,
-    keptCount: 0,
     cells,
     blocks: held,
     ...over,
@@ -166,36 +163,17 @@ describe('buyError', () => {
     expect(blockError(s, at(0, 0), T0 + HOUR)).toBe('none');
   });
 
-  it('refuses a kept block while the creator owns it, and only then', () => {
-    const kept = board([{ rect: at(1, 1, 2, 2), owner: CREATOR }], { keptCount: 1 });
-    expect(blockError(kept, at(1, 1), T0 + WEEK)).toBe('CellsKept');
-    const given = board([{ rect: at(1, 1, 2, 2), owner: A }], { keptCount: 1 });
-    expect(blockError(given, at(1, 1), T0 + WEEK)).toBe('none');
-    // The creator's own block, bought rather than kept, is an ordinary block.
-    const bought = board([{ rect: at(1, 1, 2, 2), owner: CREATOR }], { keptCount: 0 });
-    expect(blockError(bought, at(1, 1), T0 + WEEK)).toBe('none');
-    // An address in another case is the same address.
-    const shouted = board([{ rect: at(1, 1, 2, 2), owner: CREATOR.toUpperCase().replace('0X', '0x') }], { keptCount: 1 });
-    expect(blockError(shouted, at(1, 1), T0 + WEEK)).toBe('CellsKept');
-  });
-
-  it('refuses a kept block as kept in its first hour, when it is also cooling', () => {
-    const s = board([{ rect: at(1, 1, 2, 2), owner: CREATOR }], { keptCount: 1 });
-    expect(blockError(s, at(1, 1), T0)).toBe('CellsKept');
-  });
-
   it('checks a rectangle that shares a cell before counting its words', () => {
     const s = board([], { grid: { cols: 256, rows: 40 } });
     expect(buyError(s, [at(0, 0, 256, 16), at(0, 0, 1, 1)], T0)).toBe('CellsTaken');
   });
 
-  it('names the first block it meets row by row that refuses', () => {
-    const cooling = { rect: at(0, 0), owner: A, at: T0 + WEEK };
-    const kept = { rect: at(1, 0), owner: CREATOR };
-    expect(blockError(board([kept, cooling], { keptCount: 1 }), at(0, 0, 2, 1), T0 + WEEK)).toBe('CoolingDown');
-    const keptFirst = { rect: at(0, 0), owner: CREATOR };
-    const coolingSecond = { rect: at(1, 0), owner: A, at: T0 + WEEK };
-    expect(blockError(board([keptFirst, coolingSecond], { keptCount: 1 }), at(0, 0, 2, 1), T0 + WEEK)).toBe('CellsKept');
+  /** The block cap is asked of a block met for the first time before its cooldown. */
+  it('names the first refusal it meets row by row', () => {
+    const cooling = { rect: at(1, 0), owner: A, at: T0 + WEEK };
+    const settled = { rect: at(0, 0), owner: B };
+    expect(blockError(board([settled, cooling]), at(0, 0, 2, 1), T0 + WEEK)).toBe('CoolingDown');
+    expect(blockError(board([settled, cooling]), at(0, 0, 1, 1), T0 + WEEK)).toBe('none');
   });
 
   it('allows taking from 88 blocks in a buy and refuses one more, counted per rectangle', () => {
@@ -316,16 +294,11 @@ describe('layoutProblem', () => {
 
   it('accepts the most zones the chain allows and refuses one more', () => {
     const most = Array.from({ length: MAX_ZONES }, (_, i) => zone(i));
-    expect(layoutProblem(grid, most, [])).toBeNull();
-    expect(layoutProblem(grid, [...most, zone(MAX_ZONES)], [])).toEqual({ problem: 'too-many-zones', index: MAX_ZONES });
+    expect(layoutProblem(grid, most)).toBeNull();
+    expect(layoutProblem(grid, [...most, zone(MAX_ZONES)])).toEqual({ problem: 'too-many-zones', index: MAX_ZONES });
   });
 
-  it('names the zone or kept block at fault', () => {
-    expect(layoutProblem(grid, [zone(0), zone(1), zone(1)], [])).toEqual({ problem: 'zones-overlap', index: 2 });
-    const kept = [
-      { col: 0, row: 0, cols: 2, rows: 2 },
-      { col: 1, row: 1, cols: 1, rows: 1 },
-    ];
-    expect(layoutProblem(grid, [], kept)).toEqual({ problem: 'kept-overlap', index: 1 });
+  it('names the zone at fault', () => {
+    expect(layoutProblem(grid, [zone(0), zone(1), zone(1)])).toEqual({ problem: 'zones-overlap', index: 2 });
   });
 });

@@ -1,0 +1,12 @@
+{
+  "//": "The reference renderer page runs in a browser, so it is typechecked with the DOM, unlike `src` and `scripts`. `pnpm lint` runs this too.",
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["."]
+}

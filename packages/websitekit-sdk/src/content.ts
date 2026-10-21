@@ -397,6 +397,38 @@ export function contentHashToCid(hash: Hex): string {
 }
 
 /**
+ * Any binary CID — `0x01…`, a CIDv1 of any codec — as its base32 string (`b…`). An image board's
+ * source picture is too large for one raw block, so its address is a CID of its own rather than its
+ * hash (`IMAGE-BOARD-SPEC.md` §13.7); this is how a reader writes it. The same encoder as
+ * `contentHashToCid`, which is this applied to the raw-block prefix and the hash.
+ */
+export function cidBytesToString(cid: Hex): string {
+  const bytes = hexToBytes(cid);
+  if (bytes.length === 0 || bytes[0] !== 0x01) {
+    throw new MalformedContentError('a binary CID must be a CIDv1: its first byte is 0x01');
+  }
+  return `b${base32Encode(bytes)}`;
+}
+
+/**
+ * A CIDv1 string (`b…`, base32) as its binary bytes: what an image board's `sourceCid` holds. The
+ * inverse of `cidBytesToString`, with the same refusals — so a pinning service's answer goes on chain
+ * only if it reads back as the string it was.
+ */
+export function cidStringToBytes(cid: string): Hex {
+  if (!cid.startsWith('b')) {
+    throw new MalformedContentError(`expected a base32 multibase CID starting "b", got "${cid.slice(0, 8)}…"`);
+  }
+  const bytes = base32Decode(cid.slice(1));
+  if (bytes.length === 0 || bytes[0] !== 0x01) {
+    throw new MalformedContentError('a binary CID must be a CIDv1: its first byte is 0x01');
+  }
+  const hex = bytesToHex(bytes);
+  if (cidBytesToString(hex) !== cid) throw new MalformedContentError(`"${cid.slice(0, 12)}…" is not a canonical base32 CID`);
+  return hex;
+}
+
+/**
  * The inverse. Useful for checking that a gateway URL a site has stored actually addresses the
  * hash the chain holds — the two can drift, and when they do the slot renders someone else's
  * content with no error.

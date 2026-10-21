@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
 /// @notice Renting a block (2026-10-20, `docs/IMAGE-BOARD-SPEC.md` §12). The owner lists a daily
@@ -42,17 +43,17 @@ contract ImageBoardRentalsTest is ImageBoardBase {
 
     function test_onlyTheOwnerLists() public {
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotBlockOwner.selector);
+        vm.expectRevert(ImageBoardStorage.NotBlockOwner.selector);
         board.listForRent(id, RATE, 1 days);
     }
 
     function test_aTermFromAnHourToAYear() public {
         vm.startPrank(alice);
-        vm.expectRevert(ImageBoard.TermTooLong.selector);
+        vm.expectRevert(ImageBoardStorage.TermTooLong.selector);
         board.listForRent(id, RATE, 1 hours - 1);
         board.listForRent(id, RATE, 1 hours);
         board.listForRent(id, RATE, 365 days);
-        vm.expectRevert(ImageBoard.TermTooLong.selector);
+        vm.expectRevert(ImageBoardStorage.TermTooLong.selector);
         board.listForRent(id, RATE, 365 days + 1);
         vm.stopPrank();
     }
@@ -65,7 +66,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         (uint192 rate,) = board.rentListing(id);
         assertEq(rate, 0);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotForRent.selector);
+        vm.expectRevert(ImageBoardStorage.NotForRent.selector);
         board.rent(id, bob, 1 days, RATE);
     }
 
@@ -73,7 +74,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         vm.warp(block.timestamp + 1 days);
         _buy(bob, bob, 0, 0, 4, 5); // takes every cell
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.NothingLeft.selector);
+        vm.expectRevert(ImageBoardStorage.NothingLeft.selector);
         board.listForRent(id, RATE, 1 days);
     }
 
@@ -96,7 +97,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         assertEq(usd.balanceOf(address(board)) - held, cost, "the board holds it all");
         assertEq(board.pendingWithdrawals(protocol) - treasury, (cost * 500) / 10_000, "5% to the protocol");
         assertEq(board.pendingWithdrawals(seller) - holder, (cost * 500) / 10_000, "5% to the board's holder");
-        ImageBoard.Rental memory t = board.rentalOf(id);
+        ImageBoardStorage.Rental memory t = board.rentalOf(id);
         assertEq(t.tenant, tenant, "the tenant is named, not the payer");
         assertEq(t.prepaid, _net(cost), "the rest is escrowed");
         assertEq(t.expiry, block.timestamp + 2 days);
@@ -112,15 +113,15 @@ contract ImageBoardRentalsTest is ImageBoardBase {
 
     function test_theRateMustBeTheOneAgreed() public {
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.RateChanged.selector);
+        vm.expectRevert(ImageBoardStorage.RateChanged.selector);
         board.rent(id, bob, 1 days, RATE + 1);
     }
 
     function test_theTermMustFitTheOffer() public {
         vm.startPrank(bob);
-        vm.expectRevert(ImageBoard.TermTooLong.selector);
+        vm.expectRevert(ImageBoardStorage.TermTooLong.selector);
         board.rent(id, bob, 1 hours - 1, RATE);
-        vm.expectRevert(ImageBoard.TermTooLong.selector);
+        vm.expectRevert(ImageBoardStorage.TermTooLong.selector);
         board.rent(id, bob, 30 days + 1, RATE);
         board.rent(id, bob, 30 days, RATE);
         vm.stopPrank();
@@ -128,7 +129,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
 
     function test_aTenantMustBeNamed() public {
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.ZeroAddress.selector);
+        vm.expectRevert(ImageBoardStorage.ZeroAddress.selector);
         board.rent(id, address(0), 1 days, RATE);
     }
 
@@ -140,7 +141,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         board.editRented(id, keccak256("old tenant"));
         vm.warp(block.timestamp + 1 days - 1);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.RentalActive.selector);
+        vm.expectRevert(ImageBoardStorage.RentalActive.selector);
         board.rent(id, bob, 1 days, RATE);
 
         vm.warp(block.timestamp + 1);
@@ -165,7 +166,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         _rentFor(alice, alice, 30 days);
         assertEq(board.listPrice(id), 0);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotListed.selector);
+        vm.expectRevert(ImageBoardStorage.NotListed.selector);
         board.buyListedBlock(id, bob, 5_000_000);
     }
 
@@ -237,17 +238,17 @@ contract ImageBoardRentalsTest is ImageBoardBase {
 
     function test_onlyTheTenantAndOnlyDuringTheTerm() public {
         vm.prank(tenant);
-        vm.expectRevert(ImageBoard.RentalExpired.selector);
+        vm.expectRevert(ImageBoardStorage.RentalExpired.selector);
         board.editRented(id, keccak256("x"));
 
         _rentFor(bob, tenant, 1 days);
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.NotTenant.selector);
+        vm.expectRevert(ImageBoardStorage.NotTenant.selector);
         board.editRented(id, keccak256("x"));
 
         vm.warp(block.timestamp + 1 days);
         vm.prank(tenant);
-        vm.expectRevert(ImageBoard.RentalExpired.selector);
+        vm.expectRevert(ImageBoardStorage.RentalExpired.selector);
         board.editRented(id, keccak256("x"));
     }
 
@@ -271,7 +272,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         board.listForRent(id, RATE * 2, 30 days);
 
         vm.prank(tenant);
-        vm.expectRevert(ImageBoard.RateChanged.selector);
+        vm.expectRevert(ImageBoardStorage.RateChanged.selector);
         board.extendRental(id, 3 days, RATE);
 
         usd.mint(tenant, 100e6);
@@ -282,7 +283,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
 
         uint256 streamed = (prepaid * 1 days) / 2 days;
         assertEq(board.pendingWithdrawals(alice), streamed, "what streamed is the owner's first");
-        ImageBoard.Rental memory t = board.rentalOf(id);
+        ImageBoardStorage.Rental memory t = board.rentalOf(id);
         assertEq(t.expiry, block.timestamp + 3 days, "three days from now, not from the old end");
         assertEq(t.start, block.timestamp);
         assertEq(t.claimed, 0);
@@ -292,18 +293,18 @@ contract ImageBoardRentalsTest is ImageBoardBase {
     function test_onlyTheTenantExtendsALiveTermStillOffered() public {
         _rentFor(bob, tenant, 1 days);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotTenant.selector);
+        vm.expectRevert(ImageBoardStorage.NotTenant.selector);
         board.extendRental(id, 1 days, RATE);
 
         vm.prank(alice);
         board.listForRent(id, 0, 0);
         vm.prank(tenant);
-        vm.expectRevert(ImageBoard.NotForRent.selector);
+        vm.expectRevert(ImageBoardStorage.NotForRent.selector);
         board.extendRental(id, 1 days, RATE);
 
         vm.warp(block.timestamp + 1 days);
         vm.prank(tenant);
-        vm.expectRevert(ImageBoard.RentalExpired.selector);
+        vm.expectRevert(ImageBoardStorage.RentalExpired.selector);
         board.extendRental(id, 1 days, RATE);
     }
 
@@ -319,7 +320,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         vm.warp(block.timestamp + 1 days);
 
         vm.prank(alice);
-        board.transferBlock(id, carol);
+        board.transferFrom(alice, carol, id);
         assertEq(board.pendingWithdrawals(alice), (prepaid * 1 days) / 4 days, "earned by alice while she owned it");
         (uint192 rate,) = board.rentListing(id);
         assertEq(rate, 0, "the offer was alice's");
@@ -366,7 +367,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         assertEq(board.pendingWithdrawals(tenant), refund, "the tenant is refunded for the cells lost");
         assertGe(board.pendingWithdrawals(alice) - owner0, streamed, "the owner keeps what streamed (and the take's payout)");
 
-        ImageBoard.Rental memory t = board.rentalOf(id);
+        ImageBoardStorage.Rental memory t = board.rentalOf(id);
         assertEq(t.prepaid, unstreamed - refund, "the rest streams on");
         assertEq(t.start, block.timestamp);
         assertEq(t.expiry, expiry, "to the same end");
@@ -397,7 +398,7 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         (uint192 rate,) = board.rentListing(id);
         assertEq(rate, 0);
         // And touches no tenancy it does not have.
-        ImageBoard.Rental memory t = board.rentalOf(id);
+        ImageBoardStorage.Rental memory t = board.rentalOf(id);
         assertEq(t.start, 0);
         assertEq(t.expiry, 0);
     }
@@ -424,13 +425,13 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         _buy(bob, bob, 0, 0, 2, 2);
         vm.warp(block.timestamp + 1 days);
         vm.prank(alice);
-        board.transferBlock(id, carol);
+        board.transferFrom(alice, carol, id);
         address[6] memory who = [alice, bob, carol, tenant, seller, protocol];
         uint256 owed;
         for (uint256 i = 0; i < who.length; i++) {
             owed += board.pendingWithdrawals(who[i]);
         }
-        ImageBoard.Rental memory t = board.rentalOf(id);
+        ImageBoardStorage.Rental memory t = board.rentalOf(id);
         assertEq(usd.balanceOf(address(board)), owed + t.prepaid - t.claimed);
     }
 

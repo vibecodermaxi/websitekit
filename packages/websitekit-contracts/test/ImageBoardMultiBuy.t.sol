@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import { Vm } from "forge-std/Vm.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
 import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
@@ -28,13 +29,13 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
         address seller
     );
 
-    function _two(uint16[4] memory a, uint16[4] memory b) internal pure returns (ImageBoard.Rect[] memory rects) {
-        rects = new ImageBoard.Rect[](2);
-        rects[0] = ImageBoard.Rect({ col: a[0], row: a[1], cols: a[2], rows: a[3] });
-        rects[1] = ImageBoard.Rect({ col: b[0], row: b[1], cols: b[2], rows: b[3] });
+    function _two(uint16[4] memory a, uint16[4] memory b) internal pure returns (ImageBoardStorage.Rect[] memory rects) {
+        rects = new ImageBoardStorage.Rect[](2);
+        rects[0] = ImageBoardStorage.Rect({ col: a[0], row: a[1], cols: a[2], rows: a[3] });
+        rects[1] = ImageBoardStorage.Rect({ col: b[0], row: b[1], cols: b[2], rows: b[3] });
     }
 
-    function _buyAll(address payer, address recipient, ImageBoard.Rect[] memory rects) internal returns (uint256 firstId) {
+    function _buyAll(address payer, address recipient, ImageBoardStorage.Rect[] memory rects) internal returns (uint256 firstId) {
         vm.prank(payer);
         firstId = board.buyBlocks(recipient, rects, type(uint256).max, block.timestamp);
     }
@@ -50,7 +51,7 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
         );
     }
 
-    function _refused(ImageBoard.Rect[] memory rects, bytes4 err) internal {
+    function _refused(ImageBoardStorage.Rect[] memory rects, bytes4 err) internal {
         bytes32 before = _snapshot();
         vm.prank(alice);
         vm.expectRevert(err);
@@ -69,8 +70,8 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
         assertEq(board.blockCount(), 3);
         assertEq(board.ownerOf(2), bob);
         assertEq(board.ownerOf(3), bob);
-        ImageBoard.Block memory a = board.blockOf(2);
-        ImageBoard.Block memory b = board.blockOf(3);
+        ImageBoardStorage.Block memory a = board.blockOf(2);
+        ImageBoardStorage.Block memory b = board.blockOf(3);
         assertEq(abi.encode(a.col, a.row, a.cols, a.rows), abi.encode(uint16(0), uint16(0), uint16(2), uint16(3)));
         assertEq(abi.encode(b.col, b.row, b.cols, b.rows), abi.encode(uint16(5), uint16(1), uint16(4), uint16(1)));
     }
@@ -89,37 +90,37 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
 
     function test_oneCellInItsCooldownRefusesTheWholeBuy() public {
         _buy(bob, bob, 10, 10, 1, 1);
-        _refused(_two([uint16(0), 0, 2, 2], [uint16(9), 9, 2, 2]), ImageBoard.CoolingDown.selector);
+        _refused(_two([uint16(0), 0, 2, 2], [uint16(9), 9, 2, 2]), ImageBoardStorage.CoolingDown.selector);
     }
 
     function test_rectanglesSharingOneCellAreRefused() public {
-        _refused(_two([uint16(0), 0, 2, 2], [uint16(1), 1, 2, 2]), ImageBoard.CellsTaken.selector);
+        _refused(_two([uint16(0), 0, 2, 2], [uint16(1), 1, 2, 2]), ImageBoardStorage.CellsTaken.selector);
     }
 
     function test_theSameRectangleTwiceIsRefused() public {
-        _refused(_two([uint16(4), 4, 1, 1], [uint16(4), 4, 1, 1]), ImageBoard.CellsTaken.selector);
+        _refused(_two([uint16(4), 4, 1, 1], [uint16(4), 4, 1, 1]), ImageBoardStorage.CellsTaken.selector);
     }
 
     function test_anEmptyOrOutsideRectangleRefusesTheBuy() public {
-        _refused(_two([uint16(0), 0, 1, 1], [uint16(3), 3, 0, 1]), ImageBoard.EmptyBlock.selector);
-        _refused(_two([uint16(0), 0, 1, 1], [uint16(29), 0, 2, 1]), ImageBoard.OutsideGrid.selector);
+        _refused(_two([uint16(0), 0, 1, 1], [uint16(3), 3, 0, 1]), ImageBoardStorage.EmptyBlock.selector);
+        _refused(_two([uint16(0), 0, 1, 1], [uint16(29), 0, 2, 1]), ImageBoardStorage.OutsideGrid.selector);
     }
 
     /// The first failing rectangle names the error, in the order given.
     function test_theFirstBadRectangleNamesTheError() public {
         _buy(bob, bob, 10, 10, 1, 1);
-        _refused(_two([uint16(10), 10, 1, 1], [uint16(30), 0, 1, 1]), ImageBoard.CoolingDown.selector);
-        _refused(_two([uint16(30), 0, 1, 1], [uint16(10), 10, 1, 1]), ImageBoard.OutsideGrid.selector);
+        _refused(_two([uint16(10), 10, 1, 1], [uint16(30), 0, 1, 1]), ImageBoardStorage.CoolingDown.selector);
+        _refused(_two([uint16(30), 0, 1, 1], [uint16(10), 10, 1, 1]), ImageBoardStorage.OutsideGrid.selector);
     }
 
     function test_nothingToBuyIsRefused() public {
-        _refused(new ImageBoard.Rect[](0), ImageBoard.EmptyBlock.selector);
+        _refused(new ImageBoardStorage.Rect[](0), ImageBoardStorage.EmptyBlock.selector);
     }
 
     function test_theRecipientMustBeNamed() public {
-        ImageBoard.Rect[] memory rects = _two([uint16(0), 0, 1, 1], [uint16(2), 0, 1, 1]);
+        ImageBoardStorage.Rect[] memory rects = _two([uint16(0), 0, 1, 1], [uint16(2), 0, 1, 1]);
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.ZeroAddress.selector);
+        vm.expectRevert(ImageBoardStorage.ZeroAddress.selector);
         board.buyBlocks(address(0), rects, type(uint256).max, block.timestamp);
     }
 
@@ -139,9 +140,9 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
     /// Seven one-cell blocks: 7 × 500 = 3,500 to the protocol, where one seven-cell block's cut is
     /// 3,501. Each block is cut as if bought alone.
     function test_eachBlockIsCutAsIfBoughtAlone() public {
-        ImageBoard.Rect[] memory rects = new ImageBoard.Rect[](7);
+        ImageBoardStorage.Rect[] memory rects = new ImageBoardStorage.Rect[](7);
         for (uint16 i = 0; i < 7; i++) {
-            rects[i] = ImageBoard.Rect({ col: i * 2, row: 0, cols: 1, rows: 1 });
+            rects[i] = ImageBoardStorage.Rect({ col: i * 2, row: 0, cols: 1, rows: 1 });
         }
         _buyAll(alice, alice, rects);
         assertEq(board.pendingWithdrawals(protocol), 3_500);
@@ -181,7 +182,7 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
         uint256 total = board.quote(0, 0, 2, 2) + board.quote(8, 8, 3, 1);
         uint256 deadline = block.timestamp + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) = _permitSig(alicePk, address(board), total, deadline);
-        ImageBoard.Rect[] memory rects = _two([uint16(0), 0, 2, 2], [uint16(8), 8, 3, 1]);
+        ImageBoardStorage.Rect[] memory rects = _two([uint16(0), 0, 2, 2], [uint16(8), 8, 3, 1]);
         vm.prank(alice);
         uint256 first = board.buyBlocksWithPermit(alice, rects, total, deadline, v, r, s);
         assertEq(board.ownerOf(first), alice);
@@ -196,7 +197,7 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
         uint256 short_ = board.quote(0, 0, 2, 2);
         uint256 deadline = block.timestamp + 1 hours;
         (uint8 v, bytes32 r, bytes32 s) = _permitSig(alicePk, address(board), short_, deadline);
-        ImageBoard.Rect[] memory rects = _two([uint16(0), 0, 2, 2], [uint16(8), 8, 3, 1]);
+        ImageBoardStorage.Rect[] memory rects = _two([uint16(0), 0, 2, 2], [uint16(8), 8, 3, 1]);
         vm.prank(alice);
         vm.expectRevert();
         board.buyBlocksWithPermit(alice, rects, short_, deadline, v, r, s);

@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import { Vm } from "forge-std/Vm.sol";
 import { stdStorage, StdStorage } from "forge-std/StdStorage.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
 import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { TermsLib } from "../src/TermsLib.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
@@ -11,8 +12,8 @@ import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
 using ImageBoardReads for ImageBoard;
 /// @notice Takeovers (`IMAGE-BOARD-SPEC.md` §11, 2026-10-14): any cell may be bought, sold or not,
-/// except a kept one while the creator owns it and one still in its cooldown. Each rule at its
-/// boundary, the money to the unit, and the gas the caps are set from, measured cold.
+/// except one still in its cooldown. Each rule at its boundary, the money to the unit, and the gas
+/// the caps are set from, measured cold.
 ///
 /// The base board is *Standard* terms (take 1.4×, payout 1.15×, 3% a week over 52, an hour's
 /// cooldown) at 10,003 a cell, so no figure below divides evenly.
@@ -30,10 +31,10 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         }
     }
 
-    function _rects(uint16[4][] memory r) internal pure returns (ImageBoard.Rect[] memory rects) {
-        rects = new ImageBoard.Rect[](r.length);
+    function _rects(uint16[4][] memory r) internal pure returns (ImageBoardStorage.Rect[] memory rects) {
+        rects = new ImageBoardStorage.Rect[](r.length);
         for (uint256 i = 0; i < r.length; i++) {
-            rects[i] = ImageBoard.Rect({ col: r[i][0], row: r[i][1], cols: r[i][2], rows: r[i][3] });
+            rects[i] = ImageBoardStorage.Rect({ col: r[i][0], row: r[i][1], cols: r[i][2], rows: r[i][3] });
         }
     }
 
@@ -50,7 +51,7 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         uint256 paid = usd.balanceOf(bob);
 
         vm.expectEmit(true, true, true, true);
-        emit ImageBoard.CellsLost(first, 2, alice, 1, 11_503);
+        emit ImageBoardStorage.CellsLost(first, 2, alice, 1, 11_503);
         uint256 id = _buy(bob, bob, 0, 0, 1, 1);
 
         assertEq(paid - usd.balanceOf(bob), 14_004, "charged");
@@ -107,9 +108,9 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         // Free 20,006; alice's part 20,006 → charged 28,008, paid 23,006; bob's 10,003 → 14,004, 11,503.
         assertEq(board.quote(0, 0, 5, 1), 20_006 + 28_008 + 14_004);
         vm.expectEmit(true, true, true, true);
-        emit ImageBoard.CellsLost(a, 3, alice, 2, 23_006);
+        emit ImageBoardStorage.CellsLost(a, 3, alice, 2, 23_006);
         vm.expectEmit(true, true, true, true);
-        emit ImageBoard.CellsLost(b, 3, bob, 1, 11_503);
+        emit ImageBoardStorage.CellsLost(b, 3, bob, 1, 11_503);
         uint256 id = _buy(carol, carol, 0, 0, 5, 1);
 
         assertEq(board.pendingWithdrawals(alice), 23_006);
@@ -133,7 +134,7 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 lostByA;
         for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].topics[0] == ImageBoard.CellsLost.selector && uint256(logs[i].topics[1]) == a) {
+            if (logs[i].topics[0] == ImageBoardStorage.CellsLost.selector && uint256(logs[i].topics[1]) == a) {
                 lostByA++;
                 (uint256 cells,) = abi.decode(logs[i].data, (uint256, uint256));
                 assertEq(cells, 5);
@@ -144,43 +145,28 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
     }
 
     // ---------------------------------------------------------------------
-    // Cooldown, kept squares, listings
+    // Cooldown, a creator's own block, listings
     // ---------------------------------------------------------------------
 
     function test_aCellCannotBeTakenInsideItsCooldown() public {
         _buy(alice, alice, 0, 0, 1, 1);
         vm.warp(block.timestamp + HOUR - 1);
-        assertEq(board.blockError(0, 0, 1, 1), ImageBoard.CoolingDown.selector);
+        assertEq(board.blockError(0, 0, 1, 1), ImageBoardStorage.CoolingDown.selector);
         vm.warp(block.timestamp + 1);
         assertEq(board.blockError(0, 0, 1, 1), bytes4(0));
     }
 
-    /// Kept squares are protected while the creator owns them — and only then.
-    function test_keptSquaresAreProtectedOnlyWhileTheCreatorOwnsThem() public {
-        ImageBoard.Config memory cfg = _config(300, 300, 10);
-        cfg.kept = new ImageBoard.Rect[](1);
-        cfg.kept[0] = ImageBoard.Rect({ col: 0, row: 0, cols: 2, rows: 2 });
-        _use(_create(cfg));
-        vm.warp(block.timestamp + HOUR);
-        assertEq(board.blockError(1, 1, 2, 2), ImageBoard.CellsKept.selector);
-
+    /// Kept squares are gone (2026-10-21): a creator's own spot is bought like anyone's, and taken
+    /// like anyone's once its cooldown is over — whether or not they also hold the board's NFT.
+    function test_theCreatorsOwnBlockIsTakenLikeAnyOther() public {
+        usd.mint(seller, 1e12);
         vm.prank(seller);
-        board.transferBlock(1, alice);
-        assertEq(board.blockError(1, 1, 2, 2), bytes4(0), "given away, it is an ordinary block");
-        // Its level is 10,000: one kept cell costs what a first-sale cell would, times take.
-        assertEq(board.quote(0, 0, 1, 1), 14_004);
-
-        vm.prank(alice);
-        board.transferBlock(1, seller);
-        assertEq(board.blockError(1, 1, 2, 2), ImageBoard.CellsKept.selector, "back with the creator, protected again");
-    }
-
-    /// The creator also holding the board's NFT does not make another block of theirs protected.
-    function test_onlyKeptBlocksAreProtected() public {
-        uint256 id = _buy(alice, seller, 0, 0, 1, 1);
-        assertGt(id, board.keptCount());
+        usd.approve(address(board), type(uint256).max);
+        _buy(seller, seller, 0, 0, 2, 2);
         vm.warp(block.timestamp + HOUR);
-        assertEq(board.blockError(0, 0, 1, 1), bytes4(0));
+        assertEq(board.blockError(1, 1, 2, 2), bytes4(0));
+        _buy(alice, alice, 1, 1, 2, 2);
+        assertEq(board.blockOf(1).cellsLeft, 3);
     }
 
     function test_aTakeEndsTheListingOfEveryBlockItTouches() public {
@@ -190,11 +176,11 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         vm.warp(block.timestamp + HOUR);
 
         vm.expectEmit(true, true, false, false);
-        emit ImageBoard.BlockDelisted(a, alice);
+        emit ImageBoardStorage.BlockDelisted(a, alice);
         _buy(bob, bob, 1, 0, 1, 1);
         assertEq(board.listPrice(a), 0);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotListed.selector);
+        vm.expectRevert(ImageBoardStorage.NotListed.selector);
         board.buyListedBlock(a, bob, 1_000_000);
 
         vm.prank(alice);
@@ -206,7 +192,7 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         vm.warp(block.timestamp + HOUR);
         _buy(bob, bob, 0, 0, 1, 1);
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.NothingLeft.selector);
+        vm.expectRevert(ImageBoardStorage.NothingLeft.selector);
         board.listBlock(a, 1);
     }
 
@@ -237,7 +223,7 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         uint256 total = board.quote(0, 0, 2, 1);
         uint256 snap = vm.snapshotState();
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.PriceTooHigh.selector);
+        vm.expectRevert(ImageBoardStorage.PriceTooHigh.selector);
         board.buyBlocks(bob, _one(0, 0, 2, 1), total - 1, block.timestamp);
         vm.revertToState(snap);
         vm.prank(bob);
@@ -246,7 +232,7 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
 
     function test_theBuyRefusesAfterItsDeadline() public {
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.DeadlineExpired.selector);
+        vm.expectRevert(ImageBoardStorage.DeadlineExpired.selector);
         board.buyBlocks(alice, _one(0, 0, 1, 1), type(uint256).max, block.timestamp - 1);
         vm.prank(alice);
         board.buyBlocks(alice, _one(0, 0, 1, 1), type(uint256).max, block.timestamp);
@@ -258,20 +244,20 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         _use(_create(_config(2560, 10_000, 10)));
         assertEq(board.MAX_WORDS_PER_BUY(), 512);
         assertEq(board.blockError(0, 0, 256, 16), bytes4(0), "32 words a row, 16 rows");
-        assertEq(board.blockError(0, 0, 256, 17), ImageBoard.TooLarge.selector);
+        assertEq(board.blockError(0, 0, 256, 17), ImageBoardStorage.TooLarge.selector);
         assertEq(board.blockError(0, 0, 8, 512), bytes4(0), "one word a row");
-        assertEq(board.blockError(0, 0, 8, 513), ImageBoard.TooLarge.selector);
+        assertEq(board.blockError(0, 0, 8, 513), ImageBoardStorage.TooLarge.selector);
         assertEq(board.blockError(4, 0, 8, 256), bytes4(0), "two words a row");
-        assertEq(board.blockError(4, 0, 8, 257), ImageBoard.TooLarge.selector);
+        assertEq(board.blockError(4, 0, 8, 257), ImageBoardStorage.TooLarge.selector);
         assertEq(board.blockError(7, 0, 2, 256), bytes4(0), "two cells, two words");
-        assertEq(board.blockError(7, 0, 2, 257), ImageBoard.TooLarge.selector);
+        assertEq(board.blockError(7, 0, 2, 257), ImageBoardStorage.TooLarge.selector);
         // Counted across the rectangles of one buy.
         uint16[4][] memory r = new uint16[4][](2);
         r[0] = [uint16(0), 0, 256, 16];
         r[1] = [uint16(0), 16, 1, 1];
-        assertEq(board.buyError(_rects(r)), ImageBoard.TooLarge.selector);
+        assertEq(board.buyError(_rects(r)), ImageBoardStorage.TooLarge.selector);
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.TooLarge.selector);
+        vm.expectRevert(ImageBoardStorage.TooLarge.selector);
         board.buyBlocks(alice, _rects(r), type(uint256).max, block.timestamp);
     }
 
@@ -286,14 +272,14 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         board.buyBlocks(alice, _rects(r), type(uint256).max, block.timestamp);
         vm.warp(block.timestamp + HOUR);
         assertEq(board.blockError(0, 0, uint16(cap), 1), bytes4(0));
-        assertEq(board.blockError(0, 0, uint16(cap) + 1, 1), ImageBoard.TooManyBlocks.selector);
+        assertEq(board.blockError(0, 0, uint16(cap) + 1, 1), ImageBoardStorage.TooManyBlocks.selector);
     }
 
     /// `quoteBlocks` never prices what the buy refuses: it reverts with `buyError`'s answer.
     function test_quoteRevertsWithTheGatesAnswer() public {
         _buy(alice, alice, 0, 0, 1, 1);
-        assertEq(board.blockError(0, 0, 1, 1), ImageBoard.CoolingDown.selector);
-        vm.expectRevert(ImageBoard.CoolingDown.selector);
+        assertEq(board.blockError(0, 0, 1, 1), ImageBoardStorage.CoolingDown.selector);
+        vm.expectRevert(ImageBoardStorage.CoolingDown.selector);
         board.quote(0, 0, 1, 1);
     }
 
@@ -301,7 +287,7 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         stdstore.target(address(board)).sig("blockCount()").checked_write(uint256(type(uint32).max) - 1);
         _buy(alice, alice, 0, 0, 1, 1);
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
         board.buyBlocks(alice, _one(1, 0, 1, 1), type(uint256).max, block.timestamp);
     }
 
@@ -310,7 +296,7 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
     // ---------------------------------------------------------------------
 
     function test_termsAreThePageBoardsClamps() public {
-        ImageBoard.Config memory cfg = _config(300, 300, 10);
+        ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
         cfg.terms.payoutBps = 9_999;
         vm.expectRevert(TermsLib.PayoutBelowPrincipal.selector);
         collection.createBoardFor(seller, abi.encode(cfg));
@@ -349,15 +335,15 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
 
     function _mostZones() internal returns (ImageBoard) {
         uint256 most = implementation.MAX_ZONES();
-        ImageBoard.Config memory cfg = _config(2560, 10_000, 10);
-        cfg.zones = new ImageBoard.Zone[](most);
+        ImageBoardStorage.Config memory cfg = _config(2560, 10_000, 10);
+        cfg.zones = new ImageBoardStorage.Zone[](most);
         for (uint256 i = 0; i < most; i++) {
-            cfg.zones[i] = ImageBoard.Zone({ col: 0, row: uint16(i), cols: 256, rows: 1, cellPrice: DEAR });
+            cfg.zones[i] = ImageBoardStorage.Zone({ col: 0, row: uint16(i), cols: 256, rows: 1, cellPrice: DEAR });
         }
         return _create(cfg);
     }
 
-    function _measure(address payer, ImageBoard.Rect[] memory rects) internal returns (uint256 used) {
+    function _measure(address payer, ImageBoardStorage.Rect[] memory rects) internal returns (uint256 used) {
         vm.cool(address(board));
         vm.cool(address(usd));
         vm.prank(payer);
@@ -395,9 +381,9 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         for (uint256 i = 0; i < blocks; i++) {
             r[i] = [uint16((i % perRow) * stride), uint16(i / perRow), 1, 1];
         }
-        ImageBoard.Rect[] memory seeds = _rects(r);
+        ImageBoardStorage.Rect[] memory seeds = _rects(r);
         for (uint256 i = 0; i < blocks; i++) {
-            ImageBoard.Rect[] memory one = new ImageBoard.Rect[](1);
+            ImageBoardStorage.Rect[] memory one = new ImageBoardStorage.Rect[](1);
             one[0] = seeds[i];
             address owner_ = address(uint160(0x10000 + i));
             vm.prank(bob);
@@ -420,8 +406,8 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         uint256 perRow = (blocks + rows - 1) / rows;
         uint256 stride = 256 / perRow;
         for (uint256 i = 0; i < blocks; i++) {
-            ImageBoard.Rect[] memory one = new ImageBoard.Rect[](1);
-            one[0] = ImageBoard.Rect(uint16((i % perRow) * stride), uint16(i / perRow), 1, 1);
+            ImageBoardStorage.Rect[] memory one = new ImageBoardStorage.Rect[](1);
+            one[0] = ImageBoardStorage.Rect(uint16((i % perRow) * stride), uint16(i / perRow), 1, 1);
             address owner_ = address(uint160(0x10000 + i));
             vm.prank(bob);
             uint256 id = board.buyBlocks(owner_, one, type(uint256).max, block.timestamp);

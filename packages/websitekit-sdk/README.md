@@ -72,14 +72,18 @@ attestor's and accepted from nobody else.
 
 ## Image boards
 
-The second kind of board: one uploaded picture, sold as rectangular blocks of square cells. The
-board itself is one ERC-721 token in a shared collection; a block is a record on its board, given
-or resold whole only by its owner. Any cell can be bought, sold or not: a buy over another block's
-cells takes them at that block's price times the board's take multiple, and credits its owner — as
-a page slot is taken — except a square its creator kept, and one bought in the last cooldown. Spec: [`docs/IMAGE-BOARD-SPEC.md`](../../docs/IMAGE-BOARD-SPEC.md).
+The second kind of board: one uploaded picture, sold as rectangular blocks of square cells. **A
+board is an NFT and a collection**: its own token sits in a shared Boards collection, and the board
+itself is an ERC-721 whose tokens are its blocks — minted at the buy, approvable, tradable anywhere,
+with metadata built on chain (`readBlockTokenURI`) and pictures addressed by their hash on IPFS
+(`contentHashToCid`). Any cell can be bought, sold or not: a buy over another block's cells takes
+them at that block's price times the board's take multiple, and credits its owner — as a page slot
+is taken — except one bought in the last cooldown. The covered block keeps its token and the cells
+it has left. Spec: [`docs/IMAGE-BOARD-SPEC.md`](../../docs/IMAGE-BOARD-SPEC.md) §13.
 
-**On Robinhood Chain (4663) and its testnet (46630).** `imageBoardDeploymentFor` answers each
-with its own addresses and throws for any other chain. Mainnet boards settle in USDG.
+**This generation is on Robinhood Chain mainnet (4663), settling in USDG, and on its testnet
+(46630).** `imageBoardDeploymentFor` throws for any other chain; the earlier generation answers a
+different ABI and is not listed.
 Everything lives under its own entry point, because its names (`quote`, `readBlock`, `Rect`) are
 generic:
 
@@ -113,8 +117,13 @@ contract generates — use them to preview a selection as the pointer moves, nev
 A take's price moves with time, so they take `now` (seconds, the chain's clock), and the buy names
 the most it will pay (`maxTotal`): the contract refuses it if the cells cost more when it lands. Builders
 cover the rest: creating a board (`buildCreateImageBoard`, permissionless; the seller is named and
-signs nothing), writing a block's picture hash (`buildEditBlock`), editors, gifts, resale
-(`buildListBlock`, `buildBuyListedBlockWithPermit`) and lowering prices (`buildLowerPrices`).
+signs nothing), writing a block's picture hash (`buildEditBlock`), editors, moving a block
+(`buildTransferBlock`, `buildApproveBlock`, `buildSetBlockOperator` — an approval moves a block and
+nothing else), resale inside the board (`buildListBlock`, `buildBuyListedBlockWithPermit`), lowering
+prices (`buildLowerPrices`) and announcing a lapsed tenant picture (`buildPokeBlock`). A sale on a
+marketplace does not move a block's take price: its metadata states it (`readTakePrice`).
+`composeBoard` draws the board from its source, its cell map and each block's decoded picture, as
+every renderer must (spec §13.9).
 
 **Renting a block.** An owner offers a block at a daily rate, up to a longest term
 (`buildListForRent`; a rate of zero ends the offer). Anyone can rent it for a NAMED tenant — the

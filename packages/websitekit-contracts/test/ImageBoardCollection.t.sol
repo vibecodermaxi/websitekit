@@ -38,6 +38,10 @@ contract BoardV2 is IImageBoardInit {
     function changed() external {
         ImageBoardCollection(collection).boardChanged();
     }
+
+    function boardURI() external pure returns (string memory) {
+        return "data:application/json,{\"name\":\"v2\"}";
+    }
 }
 
 /// @notice The collection's third power: which implementation NEW boards are cloned from. Existing

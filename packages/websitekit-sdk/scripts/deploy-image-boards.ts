@@ -1,22 +1,37 @@
 /**
- * Deploys image boards onto a chain that already has a protocol generation
- * (`docs/IMAGE-BOARD-SPEC.md`): the `ImageBoard` implementation, then `ImageBoardCollection`
- * — the ERC-721 in which each board is one token (decided 2026-10-09, `docs/IMAGE-BOARD-SPEC.md`).
+ * Deploys image boards — the token generation (`docs/IMAGE-BOARD-SPEC.md` §13) — onto a chain that
+ * already has a protocol generation: `ImageBoardExtension` (set-up and rentals), `ImageBoardRenderer`
+ * (every metadata string), the `ImageBoard` implementation over both, then `ImageBoardCollection`,
+ * the Boards collection in which each board is one token. Each board is itself an ERC-721 of its
+ * blocks.
  *
  *   testnet:  set -a; . ./.env; set +a
  *   mainnet:  set -a; . ./.env; . ./.env.mainnet; set +a; export DEPLOYER_KEY=…   (your terminal only)
- *   then:     IMAGE_BOARD_NAME="… Image Boards" IMAGE_BOARD_SYMBOL=… \
- *             IMAGE_BOARD_OWNER=0x… IMAGE_BOARD_BASE_URI=https://<platform>/i/boards/ \
+ *   then:     IMAGE_BOARD_NAME="…" IMAGE_BOARD_SYMBOL=… IMAGE_BOARD_OWNER=0x… \
+ *             IMAGE_BOARD_THUMBNAIL_BASE=https://<platform>/i/boards/ \
+ *             IMAGE_BOARD_RENDERER_PAGE=ipfs://<cid>/ IMAGE_BOARD_CONTRACT_JSON=<file.json> \
  *             pnpm --filter @websitekit/sdk exec tsx scripts/deploy-image-boards.ts
  *
- * **`IMAGE_BOARD_NAME` and `IMAGE_BOARD_SYMBOL` are the collection's ERC-721 name and symbol** —
- * what marketplaces show. The deployer's to choose and fixed at deployment, with no default: the
- * protocol's source names no product (2026-10-12), as `SlotSite`'s are `createSite` arguments.
+ * **`IMAGE_BOARD_NAME` and `IMAGE_BOARD_SYMBOL` are the Boards collection's ERC-721 name and symbol**
+ * — what marketplaces show, and a board's own symbol is this one's with its token id. The deployer's
+ * to choose and fixed at deployment, with no default: the protocol's source names no product
+ * (2026-10-12), as `SlotSite`'s are `createSite` arguments. So is the Boards collection's own
+ * metadata (ERC-7572), which has no setter: `IMAGE_BOARD_CONTRACT_JSON` is a FILE, parsed and written
+ * as `data:application/json;utf8,…`. A string in a shell variable is what put curly quotes into the
+ * first 4663 collection's metadata (2026-10-22), unparseable for good.
  *
- * **`IMAGE_BOARD_BASE_URI` is where marketplaces fetch each board's metadata**: `tokenURI(n)` is it
- * plus `n`. The owner can move it later (`setBaseURI`, which announces a refresh of every token).
- * The owner's other powers: the token allowlist, and which implementation NEW boards are cloned from
- * (`setImplementation`, 2026-10-20) — existing boards never change.
+ * **`IMAGE_BOARD_IMPLEMENTATION=0x…` deploys the collection alone** over an implementation already
+ * deployed, its extension and renderer read from it; the renderer's two strings are then the
+ * implementation's, so neither variable is asked. A board records the collection that created it,
+ * so one implementation serves any number of collections. Every read-back still runs.
+ *
+ * **The renderer's two strings are fixed for every board of this implementation** — nobody can
+ * change how an existing board's metadata reads. `IMAGE_BOARD_THUMBNAIL_BASE` serves the board
+ * token's composite (`<base><token>?v=<changes>`); `IMAGE_BOARD_RENDERER_PAGE` is the reference
+ * renderer, an `ipfs://` page given `?chain=…&board=…`.
+ *
+ * **The collection owner's powers**: the token allowlist, and which implementation NEW boards are
+ * cloned from (`setImplementation`). No base URI, and ownership moves only by the two-step handover.
  *
  * **The protocol's terms are READ, not configured.** `protocolBps` and `protocolTreasury` are
  * immutables of the `SlotSite` implementation behind `WEBSITEKIT_FACTORY`, and the image-board
@@ -31,15 +46,15 @@
  * a throwaway key signs one and `permit` is simulated against the token. A token without it would
  * leave `buyBlocksWithPermit` ignoring the failure and every buy reverting at the pull.
  *
- * **Testnet also runs a smoke buy** — create a board with one zone and one kept block (2026-10-11),
- * lower its prices to half, mint, buy two areas in one permit buy (one across the zone), read the
- * owners and the prices back (2026-10-11: several areas, and lowered prices). Not on
- * mainnet, where a board is a public artifact and a buy is real money.
+ * **Testnet also runs a smoke** — create a named board with one zone, lower its prices to half,
+ * buy two areas in one permit buy (two tokens minted), read its metadata back as JSON, take a cell,
+ * rent the taker's block for an hour. Not on mainnet, where a board is a public artifact and a buy is
+ * real money.
  *
- * **Verify both contracts on Blockscout afterwards**, so every board cloned from the implementation
- * has a readable contract page. The commands are printed at the end.
+ * **Verify all four contracts afterwards**, so every board cloned from the implementation has a
+ * readable contract page. The commands are printed at the end.
  */
-import { encodeAbiParameters, formatEther, formatUnits, keccak256, toFunctionSelector, toHex, type Abi, type Address, type Hex } from 'viem';
+import { encodeAbiParameters, formatEther, formatUnits, keccak256, toHex, type Abi, type Address, type Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -74,6 +89,8 @@ const siteArt = artifact('SlotSite.sol', 'SlotSite');
 const slotFactoryArt = artifact('SlotFactory.sol', 'SlotFactory');
 const usdArt = artifact('TestUSD.sol', 'TestUSD');
 const boardArt = artifact('ImageBoard.sol', 'ImageBoard');
+const extensionArt = artifact('ImageBoardExtension.sol', 'ImageBoardExtension');
+const rendererArt = artifact('ImageBoardRenderer.sol', 'ImageBoardRenderer');
 const collectionArt = artifact('ImageBoardCollection.sol', 'ImageBoardCollection');
 
 const TEST_USD = { name: 'websitekit Test Dollar', symbol: 'tUSD', decimals: 6 } as const;
@@ -144,11 +161,44 @@ const slotFactory = address('WEBSITEKIT_FACTORY');
 const collectionName = required('IMAGE_BOARD_NAME');
 const collectionSymbol = required('IMAGE_BOARD_SYMBOL');
 const owner = address('IMAGE_BOARD_OWNER');
-const baseURI = required('IMAGE_BOARD_BASE_URI');
-// A base without the trailing slash makes every tokenURI `…/boards1`; plain http is a testnet's only.
-if (!baseURI.endsWith('/')) throw new Error(`IMAGE_BOARD_BASE_URI "${baseURI}" must end with "/"`);
-if (!baseURI.startsWith('https://') && !(activeChain.testnet && baseURI.startsWith('http://'))) {
-  throw new Error(`IMAGE_BOARD_BASE_URI "${baseURI}" must be https off a testnet`);
+const contractURI = contractUriFrom(required('IMAGE_BOARD_CONTRACT_JSON'));
+const existing = process.env.IMAGE_BOARD_IMPLEMENTATION ? address('IMAGE_BOARD_IMPLEMENTATION') : null;
+
+/** The collection's metadata from a JSON file: refused unless it parses to an object with a name. */
+function contractUriFrom(file: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf-8'));
+  } catch (error) {
+    throw new Error(`IMAGE_BOARD_CONTRACT_JSON "${file}" is not readable JSON: ${(error as Error).message}`);
+  }
+  const name = (parsed as { name?: unknown } | null)?.name;
+  if (typeof parsed !== 'object' || Array.isArray(parsed) || typeof name !== 'string' || name.trim() === '') {
+    throw new Error(`IMAGE_BOARD_CONTRACT_JSON "${file}" must be a JSON object with a non-empty "name"`);
+  }
+  return `data:application/json;utf8,${JSON.stringify(parsed)}`;
+}
+
+let thumbnailBase: string;
+let rendererPage: string;
+if (existing) {
+  const existingRenderer = await read<Address>(existing, boardArt.abi, 'renderer');
+  [thumbnailBase, rendererPage] = await Promise.all([
+    read<string>(existingRenderer, rendererArt.abi, 'thumbnailBase'),
+    read<string>(existingRenderer, rendererArt.abi, 'rendererPage'),
+  ]);
+} else {
+  thumbnailBase = required('IMAGE_BOARD_THUMBNAIL_BASE');
+  // A base without the trailing slash makes every thumbnail `…/boards1`; plain http is a testnet's only.
+  if (!thumbnailBase.endsWith('/')) throw new Error(`IMAGE_BOARD_THUMBNAIL_BASE "${thumbnailBase}" must end with "/"`);
+  if (!thumbnailBase.startsWith('https://') && !(activeChain.testnet && thumbnailBase.startsWith('http://'))) {
+    throw new Error(`IMAGE_BOARD_THUMBNAIL_BASE "${thumbnailBase}" must be https off a testnet`);
+  }
+  rendererPage = required('IMAGE_BOARD_RENDERER_PAGE');
+  // Fixed for every board of this implementation: an IPFS page, whose `?chain=…` follows its slash.
+  if (!rendererPage.startsWith('ipfs://') || !rendererPage.endsWith('/')) {
+    throw new Error(`IMAGE_BOARD_RENDERER_PAGE "${rendererPage}" must be an ipfs:// address ending with "/"`);
+  }
 }
 const siteImplementation = await read<Address>(slotFactory, slotFactoryArt.abi, 'implementation');
 const [protocolBps, protocolTreasury] = await Promise.all([
@@ -160,8 +210,12 @@ const balance = await publicClient.getBalance({ address: deployer.address });
 console.log(`\n${describeChain()}`);
 console.log(`deployer          ${deployer.address} — ${formatEther(balance)} ETH`);
 console.log(`collection        "${collectionName}" (${collectionSymbol})`);
-console.log(`collection owner  ${owner} (allowToken, setImplementation for new boards and setBaseURI; no reach into an existing board)`);
-console.log(`metadata base     ${baseURI}<token>`);
+console.log(`collection owner  ${owner} (allowToken and setImplementation, for new boards only; handover only)`);
+if (existing) console.log(`implementation    ${existing} (deployed; only the collection is new)`);
+console.log(`thumbnails        ${thumbnailBase}<token>?v=<changes>`);
+console.log(`renderer page     ${rendererPage}?chain=…&board=…`);
+// Whole, never cut: it is fixed for good, and a cut hid the curly quotes of 2026-10-22.
+console.log(`collection meta   ${contractURI}`);
 console.log(`protocol terms    ${protocolBps} bps to ${protocolTreasury}, read from SlotSite ${siteImplementation}\n`);
 if (balance === 0n) throw new Error('deployer has no balance');
 if (protocolBps !== 500n) throw new Error(`the protocol generation takes ${protocolBps} bps; image boards were decided at 500`);
@@ -207,31 +261,58 @@ if (decimals !== 6) throw new Error(`${token} reports ${decimals} decimals, not 
 // Deploy and read back
 // ---------------------------------------------------------------------------
 
-const implementation = await deploy('ImageBoard', boardArt, [protocolBps, protocolTreasury]);
-const collection = await deploy('ImageBoardCollection', collectionArt, [collectionName, collectionSymbol, owner, implementation, [token], baseURI]);
+let extension: Address;
+let renderer: Address;
+let implementation: Address;
+if (existing) {
+  implementation = existing;
+  [extension, renderer] = await Promise.all([
+    read<Address>(existing, boardArt.abi, 'extension'),
+    read<Address>(existing, boardArt.abi, 'renderer'),
+  ]);
+} else {
+  extension = await deploy('ImageBoardExtension', extensionArt, [protocolBps, protocolTreasury]);
+  renderer = await deploy('ImageBoardRenderer', rendererArt, [thumbnailBase, rendererPage]);
+  // The implementation READS its protocol terms from the extension, so the two cannot disagree.
+  implementation = await deploy('ImageBoard', boardArt, [extension, renderer]);
+}
+const collection = await deploy('ImageBoardCollection', collectionArt, [collectionName, collectionSymbol, owner, implementation, [token], contractURI]);
 
-const [recBps, recTreasury, recImpl, recOwner, allowed, recBase, recName, recSymbol] = await Promise.all([
+const [recBps, recTreasury, recExt, recRenderer, recThumb, recPage, recImpl, recOwner, allowed, recContract, recName, recSymbol] = await Promise.all([
   read<bigint>(implementation, boardArt.abi, 'protocolBps'),
   read<Address>(implementation, boardArt.abi, 'protocolTreasury'),
+  read<Address>(implementation, boardArt.abi, 'extension'),
+  read<Address>(implementation, boardArt.abi, 'renderer'),
+  read<string>(renderer, rendererArt.abi, 'thumbnailBase'),
+  read<string>(renderer, rendererArt.abi, 'rendererPage'),
   read<Address>(collection, collectionArt.abi, 'implementation'),
   read<Address>(collection, collectionArt.abi, 'owner'),
   read<boolean>(collection, collectionArt.abi, 'tokenAllowed', [token]),
-  read<string>(collection, collectionArt.abi, 'baseURI'),
+  read<string>(collection, collectionArt.abi, 'contractURI'),
   read<string>(collection, collectionArt.abi, 'name'),
   read<string>(collection, collectionArt.abi, 'symbol'),
 ]);
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 if (recBps !== protocolBps || !same(recTreasury, protocolTreasury)) throw new Error('implementation records other protocol terms');
+if (!same(recExt, extension) || !same(recRenderer, renderer)) throw new Error(`implementation points at ${recExt} and ${recRenderer}`);
+if (recThumb !== thumbnailBase || recPage !== rendererPage) throw new Error(`renderer carries "${recThumb}" and "${recPage}"`);
 if (!same(recImpl, implementation)) throw new Error(`collection points at ${recImpl}`);
 if (!same(recOwner, owner)) throw new Error(`collection is owned by ${recOwner}`);
 if (!allowed) throw new Error(`${token} is not allowed by the collection`);
-if (recBase !== baseURI) throw new Error(`collection's base is ${recBase}`);
+if (recContract !== contractURI) throw new Error(`collection's contractURI is ${recContract}`);
 if (recName !== collectionName || recSymbol !== collectionSymbol) throw new Error(`collection is "${recName}" (${recSymbol})`);
-console.log(`  read back            ${recBps} bps → ${recTreasury}; collection → implementation; owner; token allowed; base; name and symbol`);
+console.log(`  read back            ${recBps} bps → ${recTreasury}; implementation → extension, renderer; renderer's strings; collection → implementation; owner; token allowed; contractURI; name and symbol`);
 
 // ---------------------------------------------------------------------------
 // Smoke buy, testnet only
 // ---------------------------------------------------------------------------
+
+/** A `data:application/json;base64,…` metadata string, parsed: the renderer's output read as a client reads it. */
+function metadata(uri: string): Record<string, unknown> {
+  const prefix = 'data:application/json;base64,';
+  if (!uri.startsWith(prefix)) throw new Error(`metadata is not a base64 JSON data URI: ${uri.slice(0, 60)}`);
+  return JSON.parse(Buffer.from(uri.slice(prefix.length), 'base64').toString('utf-8')) as Record<string, unknown>;
+}
 
 if (activeChain.testnet) {
   const createArgs = [
@@ -245,9 +326,12 @@ if (activeChain.testnet) {
         cellSize: 10,
         cellPrice: 10_000n,
         imageHash: keccak256(toHex('deploy smoke')),
-        // A dear 2×2 zone at the top-left, and the bottom-right square kept by the deployer.
+        // The shape of a CIDv1; the smoke reads it back, nothing fetches it.
+        sourceCid: '0x01551220ab',
+        name: 'Deploy smoke "board"',
+        description: '',
+        // A dear 2×2 zone at the top-left.
         zones: [{ col: 0, row: 0, cols: 2, rows: 2, cellPrice: 20_000n }],
-        kept: [{ col: 29, row: 66, cols: 1, rows: 1 }],
         // The Standard profile with no cooldown, so the smoke can take a block it has just sold.
         terms: { takeBps: 14_000n, payoutBps: 11_500n, reversionBps: 9_700n, maxReversionWeeks: 52n, cooldownSecs: 0n },
       },
@@ -264,16 +348,18 @@ if (activeChain.testnet) {
   await write('createBoardFor', collection, collectionArt.abi, 'createBoardFor', createArgs);
   const nftHolder = await read<Address>(collection, collectionArt.abi, 'ownerOf', [boardToken]);
   if (!same(nftHolder, deployer.address)) throw new Error(`smoke board's NFT is held by ${nftHolder}`);
-  const uri = await read<string>(collection, collectionArt.abi, 'tokenURI', [boardToken]);
-  if (uri !== `${baseURI}${boardToken}`) throw new Error(`smoke board's tokenURI is ${uri}`);
   // Which code the board runs is recorded per board (2026-10-20): the collection can move NEW boards on.
   const clonedFrom = await read<Address>(collection, collectionArt.abi, 'implementationOf', [boardToken]);
   if (!same(clonedFrom, implementation)) throw new Error(`smoke board was cloned from ${clonedFrom}`);
   const grid = [await read<number>(board, boardArt.abi, 'gridCols'), await read<number>(board, boardArt.abi, 'gridRows')];
   if (grid[0] !== 30 || grid[1] !== 67) throw new Error(`smoke board grid is ${grid}, not 30×67`);
+  // The board's token's metadata is the board's own, built on chain; the name survives as JSON.
+  const boardMeta = metadata(await read<string>(collection, collectionArt.abi, 'tokenURI', [boardToken]));
+  if (boardMeta.name !== 'Deploy smoke "board"') throw new Error(`smoke board's metadata names it ${String(boardMeta.name)}`);
+  if (boardMeta.image !== `${thumbnailBase}${boardToken}?v=0`) throw new Error(`smoke board's thumbnail is ${String(boardMeta.image)}`);
+  const symbol = await read<string>(board, boardArt.abi, 'symbol');
+  if (symbol !== `${collectionSymbol}-${boardToken}`) throw new Error(`smoke board's own symbol is ${symbol}`);
 
-  const kept = await read<Address>(board, boardArt.abi, 'ownerOf', [1n]);
-  if (!same(kept, deployer.address)) throw new Error(`smoke board's kept block is held by ${kept}, not the creator`);
   // One row in the zone, one below it: two cells at 20,000 and two at the base 10,000.
   // `quoteBlocks` of one area: the board carries no single-area read since rentals (2026-10-20).
   const quoteOne = (col: number, row: number, cols: number, rows: number) =>
@@ -298,24 +384,30 @@ if (activeChain.testnet) {
   const receipt = await write('buyBlocksWithPermit', board, boardArt.abi, 'buyBlocksWithPermit', [
     recipient, areas, total, deadline, v, r, s,
   ]);
-  const holder = await read<Address>(board, boardArt.abi, 'ownerOf', [2n]);
-  if (!same(holder, recipient)) throw new Error(`smoke block is held by ${holder}, not ${recipient}`);
-  const second = await read<Address>(board, boardArt.abi, 'ownerOf', [3n]);
-  if (!same(second, recipient)) throw new Error(`smoke block 3 is held by ${second}, not ${recipient}`);
-  // The buy must have told marketplaces: one ERC-4906 MetadataUpdate from the collection.
+  for (const id of [1n, 2n]) {
+    const holder = await read<Address>(board, boardArt.abi, 'ownerOf', [id]);
+    if (!same(holder, recipient)) throw new Error(`smoke block ${id} is held by ${holder}, not ${recipient}`);
+  }
+  const balance = await read<bigint>(board, boardArt.abi, 'balanceOf', [recipient]);
+  if (balance !== 2n) throw new Error(`the smoke buyer holds ${balance} blocks, not 2`);
+  // Two tokens minted, from zero; and one ERC-4906 MetadataUpdate from the collection.
+  const minted = receipt.logs.filter((l) => same(l.address, board) && l.topics[0] === keccak256(toHex('Transfer(address,address,uint256)')));
+  if (minted.length !== 2) throw new Error(`the smoke buy minted ${minted.length} tokens, not 2`);
   const updated = receipt.logs.filter((l) => same(l.address, collection));
   if (updated.length !== 1) throw new Error(`the smoke buy left ${updated.length} collection logs, not one MetadataUpdate`);
   const owed = await read<bigint>(board, boardArt.abi, 'pendingWithdrawals', [deployer.address]);
   if (owed !== total - (total * protocolBps) / 10_000n) throw new Error(`the board's holder is owed ${owed}`);
-  console.log(`  smoke                board ${board} (token ${boardToken}): kept block 1 the creator's; prices lowered to half; 2×2 across the zone and a 1×1 in one buy for ${formatUnits(total, 6)} by permit → ${holder}; holder credited; MetadataUpdate (gas ${receipt.gasUsed})`);
+  const blockMeta = metadata(await read<string>(board, boardArt.abi, 'tokenURI', [1n]));
+  if (blockMeta.name !== 'Deploy smoke "board" #1') throw new Error(`smoke block 1's metadata names it ${String(blockMeta.name)}`);
+  console.log(`  smoke                board ${board} (token ${boardToken}, ${symbol}): metadata read back; prices lowered to half; 2×2 across the zone and a 1×1 in one buy for ${formatUnits(total, 6)} by permit → ${recipient}, two tokens minted; holder credited; MetadataUpdate (gas ${receipt.gasUsed})`);
 
-  // A take: the deployer buys block 3's one cell back. Bought at half price, its floor is still the
+  // A take: the deployer buys block 2's one cell back. Bought at half price, its floor is still the
   // creation price, so the take is 10,000 × 1.4 and its owner is credited 10,000 × 1.15.
-  const kept1 = await read<`0x${string}`>(board, boardArt.abi, 'buyError', [[{ col: 29, row: 66, cols: 1, rows: 1 }]]);
-  if (kept1 !== toFunctionSelector('CellsKept()')) throw new Error(`the kept square answered ${kept1}, not CellsKept`);
   const takeArea = [{ col: 5, row: 5, cols: 1, rows: 1 }];
   const take = await read<bigint>(board, boardArt.abi, 'quoteBlocks', [takeArea]);
   if (take !== 14_000n) throw new Error(`smoke take is ${take}, not 14,000`);
+  const takePrice = await read<bigint>(renderer, rendererArt.abi, 'takePrice', [board, 2n]);
+  if (takePrice !== take) throw new Error(`the renderer prices block 2's take at ${takePrice}, the board at ${take}`);
   await write('mint', token, usdArt.abi, 'mint', [deployer.address, take]);
   const taken = await signPermit(deployer, token, board, take, deadline);
   const takeReceipt = await write('buyBlocksWithPermit (a take)', board, boardArt.abi, 'buyBlocksWithPermit', [
@@ -323,42 +415,54 @@ if (activeChain.testnet) {
   ]);
   const paidOut = await read<bigint>(board, boardArt.abi, 'pendingWithdrawals', [recipient]);
   if (paidOut !== 11_500n) throw new Error(`the displaced owner is owed ${paidOut}, not 11,500`);
-  const left = await read<{ cellsLeft: number }>(board, boardArt.abi, 'blockOf', [3n]);
-  if (left.cellsLeft !== 0) throw new Error(`block 3 has ${left.cellsLeft} cells left, not 0`);
-  console.log(`  smoke take           block 3's cell taken for ${formatUnits(take, 6)}; its owner credited ${formatUnits(paidOut, 6)}; the kept square refused (gas ${takeReceipt.gasUsed})`);
+  const left = await read<{ cellsLeft: number }>(board, boardArt.abi, 'blockOf', [2n]);
+  if (left.cellsLeft !== 0) throw new Error(`block 2 has ${left.cellsLeft} cells left, not 0`);
+  const stillHeld = await read<Address>(board, boardArt.abi, 'ownerOf', [2n]);
+  if (!same(stillHeld, recipient)) throw new Error('a take moved the covered token');
+  console.log(`  smoke take           block 2's cell taken for ${formatUnits(take, 6)}, as the renderer priced it; its owner credited ${formatUnits(paidOut, 6)} and still holds the token (gas ${takeReceipt.gasUsed})`);
 
-  // A rental (2026-10-20): the deployer offers its kept block and rents it for the taker for an hour,
-  // by permit; the taker's picture is shown, the owner's untouched.
+  // A rental (2026-10-20): the deployer offers the block it just took and rents it for the taker for
+  // an hour, by permit; the tenant is the ERC-4907 user.
   const rate = 1_000_008n; // a day; an hour of it is 41,667
-  await write('listForRent', board, boardArt.abi, 'listForRent', [1n, rate, 86_400n]);
+  await write('listForRent', board, boardArt.abi, 'listForRent', [3n, rate, 86_400n]);
   const cost = (rate * 3_600n) / 86_400n;
   await write('mint', token, usdArt.abi, 'mint', [deployer.address, cost]);
   const rentPermit = await signPermit(deployer, token, board, cost, deadline);
   const protocolBefore = await read<bigint>(board, boardArt.abi, 'pendingWithdrawals', [protocolTreasury]);
   const rentReceipt = await write('rentWithPermit', board, boardArt.abi, 'rentWithPermit', [
-    1n, recipient, 3_600n, rate, deadline, rentPermit.v, rentPermit.r, rentPermit.s,
+    3n, recipient, 3_600n, rate, deadline, rentPermit.v, rentPermit.r, rentPermit.s,
   ]);
-  const tenancy = await read<{ tenant: Address; prepaid: bigint }>(board, boardArt.abi, 'rentalOf', [1n]);
+  const tenancy = await read<{ tenant: Address; prepaid: bigint }>(board, boardArt.abi, 'rentalOf', [3n]);
   if (!same(tenancy.tenant, recipient)) throw new Error(`the smoke rental's tenant is ${tenancy.tenant}`);
+  const user = await read<Address>(board, boardArt.abi, 'userOf', [3n]);
+  if (!same(user, recipient)) throw new Error(`the smoke rental's ERC-4907 user is ${user}`);
   const rentCut = (await read<bigint>(board, boardArt.abi, 'pendingWithdrawals', [protocolTreasury])) - protocolBefore;
   if (rentCut !== (cost * protocolBps) / 10_000n || tenancy.prepaid !== cost - 2n * rentCut) {
     throw new Error(`the smoke rental split ${cost} as ${rentCut} to the protocol and ${tenancy.prepaid} escrowed`);
   }
-  console.log(`  smoke rental         kept block rented for an hour for ${formatUnits(cost, 6)} by permit → ${recipient}; 5% + 5% credited, the rest escrowed (gas ${rentReceipt.gasUsed})`);
+  console.log(`  smoke rental         block 3 rented for an hour for ${formatUnits(cost, 6)} by permit → ${recipient}, its user; 5% + 5% credited, the rest escrowed (gas ${rentReceipt.gasUsed})`);
 }
+
+const verify = (addr: Address, contract: string, signature: string, args: string) => `  forge verify-contract ${addr} ${contract} --chain-id ${activeChain.id} \\
+    --verifier blockscout --verifier-url ${activeChain.blockExplorers.default.url}/api \\
+    --constructor-args $(cast abi-encode "${signature}" ${args})`;
 
 console.log(`
 Deployed. Record in packages/websitekit-sdk/src/image-boards.ts (IMAGE_BOARD_DEPLOYMENTS):
 
-  implementation: '${implementation.toLowerCase()}', collection: '${collection.toLowerCase()}', token: '${token.toLowerCase()}',
+  implementation: '${implementation.toLowerCase()}', extension: '${extension.toLowerCase()}', renderer: '${renderer.toLowerCase()}',
+  collection: '${collection.toLowerCase()}', token: '${token.toLowerCase()}',
 
-Verify both on Blockscout:
+Verify ${existing ? 'the collection' : 'all four'} (on 4663 Blockscout refuses scripts: use --verifier sourcify; Etherscan picks up Sourcify's matches):
 
   cd packages/websitekit-contracts
-  forge verify-contract ${implementation} src/ImageBoard.sol:ImageBoard --chain-id ${activeChain.id} \\
-    --verifier blockscout --verifier-url ${activeChain.blockExplorers.default.url}/api \\
-    --constructor-args $(cast abi-encode "constructor(uint256,address)" ${protocolBps} ${protocolTreasury})
-  forge verify-contract ${collection} src/ImageBoardCollection.sol:ImageBoardCollection --chain-id ${activeChain.id} \\
-    --verifier blockscout --verifier-url ${activeChain.blockExplorers.default.url}/api \\
-    --constructor-args $(cast abi-encode "constructor(string,string,address,address,address[],string)" "${collectionName}" "${collectionSymbol}" ${owner} ${implementation} "[${token}]" "${baseURI}")
+${existing ? '' : `${verify(extension, 'src/ImageBoardExtension.sol:ImageBoardExtension', 'constructor(uint256,address)', `${protocolBps} ${protocolTreasury}`)}
+${verify(renderer, 'src/ImageBoardRenderer.sol:ImageBoardRenderer', 'constructor(string,string)', `"${thumbnailBase}" "${rendererPage}"`)}
+${verify(implementation, 'src/ImageBoard.sol:ImageBoard', 'constructor(address,address)', `${extension} ${renderer}`)}
+`}${verify(collection, 'src/ImageBoardCollection.sol:ImageBoardCollection', 'constructor(string,string,address,address,address[],string)', `"${collectionName}" "${collectionSymbol}" ${owner} ${implementation} "[${token}]" ${shellQuote(contractURI)}`)}
 `);
+
+/** One shell word, whatever the string holds — the metadata carries apostrophes. */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}

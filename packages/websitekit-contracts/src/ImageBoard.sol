@@ -2,36 +2,50 @@
 pragma solidity 0.8.30;
 
 import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import { LibString } from "solady/utils/LibString.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Permit } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import { Pricing } from "./Pricing.sol";
-import { RentalsLib } from "./RentalsLib.sol";
-import { TermsLib } from "./TermsLib.sol";
+import { ImageBoardStorage, IImageBoardCollection } from "./ImageBoardStorage.sol";
+import { ImageBoardExtension } from "./ImageBoardExtension.sol";
 
-/// @notice What a board needs of the collection that made it: who holds the board's NFT, and a way
-/// to say the board's picture has changed.
-interface IImageBoardCollection {
-    function ownerOf(uint256 tokenId) external view returns (address);
-    function boardChanged() external;
+/// @notice Builds every metadata string a board answers with. An immutable of the implementation,
+/// so nobody can change how an existing board's metadata reads.
+interface IImageBoardRenderer {
+    function boardURI(address board) external view returns (string memory);
+    function contractURI(address board) external view returns (string memory);
+    function blockURI(address board, uint256 blockId) external view returns (string memory);
 }
 
-/// @notice One uploaded image, sold as rectangles of square cells. Implements
-/// `docs/IMAGE-BOARD-SPEC.md`.
+interface IERC721Receiver {
+    function onERC721Received(address operator, address from, uint256 id, bytes calldata data) external returns (bytes4);
+}
+
+/// @notice ERC-5646. Declared so its interface id is computed, never typed.
+interface IERC5646 {
+    function getStateFingerprint(uint256 tokenId) external view returns (bytes32);
+}
+
+/// @notice One uploaded image, sold as rectangles of square cells — and an ERC-721 collection whose
+/// tokens are those rectangles. Implements `docs/IMAGE-BOARD-SPEC.md` §1–§12 as amended by §13.
 ///
-/// An EIP-1167 clone of one implementation, created by `ImageBoardCollection`. Outside the frozen
-/// core, like the escrow contracts, and unaudited.
+/// An EIP-1167 clone of one implementation, created by `ImageBoardCollection`, which mints the
+/// board's own token to its seller. Outside the frozen core, like the escrow contracts, and
+/// unaudited. Its set-up and its rentals run in `ImageBoardExtension` by DELEGATECALL, in this
+/// board's storage (`ImageBoardStorage`), because the whole does not fit EIP-170.
 ///
-/// **The board is the NFT; a block is not** (decided 2026-10-09). The collection mints one ERC-721
-/// per board, whose picture is the whole board with every block's picture in it. A block is a plain
-/// record here — who owns which cells and who may change them — with no token, so no marketplace
-/// lists it: one board would otherwise be hundreds of listings of unrelated pictures.
+/// **Every block is a token** (decided 2026-10-21, reversing 2026-10-09's *a block is not a token*):
+/// minted to the buyer at the buy, approvable, tradable anywhere. Each board is its own collection,
+/// so a board's blocks are listed together and nothing else is — the flood the old rule guarded
+/// against came from one collection holding every board's blocks. A marketplace sees the
+/// collection from the first sale.
 ///
 /// **Proceeds go to whoever holds the board's NFT at the moment of the sale.** Owning the board is
-/// owning its squares' income; money already credited stays with whoever it was credited to.
+/// owning its squares' income; money already credited stays with whoever it was credited to. That
+/// holder is also this collection's `owner()`, which grants nothing here.
 ///
 /// **Any cell can be taken** (decided 2026-10-14, as every page slot can be). A buy may cover free
 /// cells, sold cells, or both; what it covers becomes a NEW block drawn on top, and every block it
@@ -44,17 +58,13 @@ interface IImageBoardCollection {
 ///
 /// **Nobody else has power over a board once it exists.** There is no owner role and nothing
 /// pauses. Whoever holds the board's NFT may lower every FREE square's price (`lowerPrices`) and
-/// never raise it; a cut touches nothing already sold.
-///
-/// **A seller may keep squares** (decided 2026-10-11): rectangles recorded at creation as ordinary
-/// blocks owned by the creator, for nothing and with no protocol cut. They cannot be taken while the
-/// creator owns them (decided 2026-10-14) — the point of them is the creator's own logo — and become
-/// ordinary blocks if the creator gives or sells them.
+/// never raise it; a cut touches nothing already sold. An approval moves a block and nothing else.
 ///
 /// **A block can also be resold, whole, inside this contract** (decided 2026-10-11). Its owner
 /// lists it at a price; anyone buys it at exactly that price. The sale pays the protocol its cut,
 /// pays `RESALE_ROYALTY_BPS` to whoever holds the board's NFT at that moment, and credits the rest
-/// to the block's owner. A take on a listed block ends the listing.
+/// to the block's owner. A take on a listed block ends the listing. A sale elsewhere is the
+/// marketplace's, and pays the royalty only if the marketplace honours ERC-2981.
 ///
 /// **Prices can differ by position** (decided 2026-10-11). By default every cell costs `cellPrice`.
 /// A seller may draw zones at creation, each with its own price per cell; zones never overlap, so a
@@ -66,44 +76,11 @@ interface IImageBoardCollection {
 /// board at 256 cells across. One buy writes at most `MAX_WORDS_PER_BUY` of those words and takes
 /// cells from at most `MAX_BLOCKS_TAKEN_PER_BUY` blocks, so every buy the gate allows fits one
 /// transaction.
-contract ImageBoard is ReentrancyGuardTransient {
+contract ImageBoard is ImageBoardStorage {
     using SafeERC20 for IERC20;
 
-    // ---------------------------------------------------------------------
-    // Constants and protocol immutables (live in the implementation; a clone cannot strip them)
-    // ---------------------------------------------------------------------
-
-    uint256 internal constant BPS_DENOMINATOR = 10_000;
-    uint256 internal constant BPS_SQUARED = 100_000_000;
-    /// @notice The smallest and largest square a board may be cut into, in the image's own pixels
-    /// (2026-10-20: a range, not the three sizes the platform offers today, so a larger square for a
-    /// large photo needs no new contract). The grid's caps below bound the count either way.
-    uint256 public constant MIN_CELL_SIZE = 10;
-    uint256 public constant MAX_CELL_SIZE = 200;
-    uint256 internal constant MAX_GRID_COLS = 256;
-    uint256 internal constant MAX_GRID_ROWS = 1_000;
-    /// @dev A block id per cell, eight to a word, so a row of 256 cells is 32 words.
-    uint256 internal constant CELLS_PER_WORD = 8;
-    uint256 internal constant WORDS_PER_ROW = MAX_GRID_COLS / CELLS_PER_WORD;
-    uint256 internal constant ID_BITS = 32;
-    uint256 internal constant ID_MASK = type(uint32).max;
     /// @dev `id * LANES` repeats a 32-bit id in all eight lanes of a word.
     uint256 internal constant LANES = 0x0000000100000001000000010000000100000001000000010000000100000001;
-    /// @dev Not a product limit; the chain's: zones are read on every buy. See `ImageBoardTakeovers.t.sol`.
-    uint256 public constant MAX_ZONES = 512;
-    /// @notice The most cell words one buy may write, across all its rectangles: each row of a
-    /// rectangle counts the words its columns span (eight cells to a word). Words, not cells, because
-    /// a word is what a buy pays for — a column one cell wide writes a word per cell, a row of 256
-    /// writes one per eight. 512 is a 64 × 64 square or a 256 × 16 strip. Set so the dearest buy the
-    /// gate allows fits Robinhood Chain's 32M gas per transaction with headroom, measured cold in
-    /// `ImageBoardTakeovers.t.sol`.
-    uint256 public constant MAX_WORDS_PER_BUY = 512;
-    /// @notice The most blocks one buy may take cells from, counted once per rectangle. Each costs
-    /// a credit, a count and an event — and, if rented, settling and refunding its tenancy — so this
-    /// bounds a take across many small blocks. 88 (2026-10-20, 128 before rentals): a take of 88
-    /// blocks, each rented to its own tenant and offered for rent and for resale, fits the same
-    /// headroom with ~2% to spare (92 left ~1%).
-    uint256 public constant MAX_BLOCKS_TAKEN_PER_BUY = 88;
     /// @dev The lookup a rectangle tallies covered blocks in: a power of two, twice the most entries.
     uint256 internal constant TABLE_SIZE = 256;
 
@@ -116,374 +93,42 @@ contract ImageBoard is ReentrancyGuardTransient {
     /// bytecode carries no brand — whoever deploys names the collection instead.
     bytes32 private constant DOMAIN_NAME_HASH = keccak256("Image Board");
 
-    /// @notice What a resale pays whoever holds the board's NFT at that moment, on top of the
-    /// protocol's cut. A constant, like the 5% creator royalty on the board itself.
-    uint256 public constant RESALE_ROYALTY_BPS = 500;
-
-    /// @notice What a rental pays whoever holds the board's NFT at that moment, beside the protocol's
-    /// cut, as a resale does. Fixed: there is no publisher's dial here.
-    uint256 public constant RENT_ROYALTY_BPS = 500;
-    /// @notice The shortest and longest term a block can be rented for, or listed at.
-    uint64 public constant MIN_RENTAL_DURATION = 1 hours;
-    uint64 public constant MAX_RENTAL_TERM = 365 days;
-
-    uint256 public immutable protocolBps;
-    address public immutable protocolTreasury;
-
-    // ---------------------------------------------------------------------
-    // Frozen at initialize()
-    // ---------------------------------------------------------------------
-
-    /// @notice A rectangle of cells, counted from the top-left like the grid.
-    struct Rect {
-        uint16 col;
-        uint16 row;
-        uint16 cols;
-        uint16 rows;
-    }
-
-    /// @notice Cells priced differently from `cellPrice`. One storage word: the rectangle and a
-    /// price up to 2^192, which no settlement token's units approach.
-    struct Zone {
-        uint16 col;
-        uint16 row;
-        uint16 cols;
-        uint16 rows;
-        uint192 cellPrice;
-    }
-
-    /// @notice How a sold cell is taken: the same five numbers, under the same clamps, as a page
-    /// board's (`TermsLib.checkEconomicsAbsolute`). Chosen by the creator; frozen.
-    struct Terms {
-        uint256 takeBps;
-        uint256 payoutBps;
-        uint256 reversionBps;
-        uint256 maxReversionWeeks;
-        uint256 cooldownSecs;
-    }
-
-    struct Config {
-        /// ERC-20 only. There is no native path, so there is no change ledger.
-        address settlementToken;
-        /// The image's own pixels.
-        uint32 width;
-        uint32 height;
-        /// From `MIN_CELL_SIZE` to `MAX_CELL_SIZE`.
-        uint8 cellSize;
-        uint256 cellPrice;
-        /// Hash of the original image bytes.
-        bytes32 imageHash;
-        /// Optional, may be empty: inside the grid, non-empty, non-zero price, never overlapping.
-        Zone[] zones;
-        /// Optional, may be empty: blocks the creator keeps, in this order, from block id 1.
-        Rect[] kept;
-        Terms terms;
-    }
-
-    /// @notice The collection that made this board and holds its NFT.
-    address public collection;
-    /// @notice This board's token in `collection`. Whoever owns it is paid for every square sold.
-    uint256 public boardTokenId;
-    address public settlementToken;
-    uint32 public width;
-    uint32 public height;
-    uint8 public cellSize;
-    uint16 public gridCols;
-    uint16 public gridRows;
-    /// @notice The price set at creation. What a FREE square costs now is this scaled by `priceBps`.
-    uint256 public cellPrice;
-    bytes32 public imageHash;
-    bool private _initialized;
-
-    /// @notice Who the board was created for: the owner of its kept blocks.
-    address public creator;
-    /// @notice Kept blocks are ids `1..keptCount`.
-    uint32 public keptCount;
-    uint16 public takeBps;
-    uint16 public payoutBps;
-    uint16 public reversionBps;
-    uint8 public maxReversionWeeks;
-    uint32 public cooldownSecs;
-
-    // ---------------------------------------------------------------------
-    // The one thing that changes about a board's prices
-    // ---------------------------------------------------------------------
-
-    /// @notice What share of the prices set at creation a FREE square costs now, in bps: 10,000
-    /// until whoever holds the board's NFT lowers it, and it only ever falls. Applied to the free
-    /// part of a rectangle and rounded UP, so no cut makes a square free. Sold cells never see it.
-    uint256 public priceBps;
-
-    // ---------------------------------------------------------------------
-    // Blocks
-    // ---------------------------------------------------------------------
-
-    /// @dev The first word: the rectangle, the version, and what a take of it is priced from.
-    /// `level` is what the block cost over the creation price of its cells, in bps, rounded up.
-    struct Block {
-        uint16 col;
-        uint16 row;
-        uint16 cols;
-        uint16 rows;
-        uint32 version;
-        uint96 level;
-        uint40 boughtAt;
-        uint24 cellsLeft;
-        bytes32 contentHash;
-    }
-
-    /// @dev Block ids run from 1, so an id of zero is never a block — and a cell of zero is free.
-    uint256 public blockCount;
-    /// @notice Cells no block holds.
-    uint256 public freeCells;
-    mapping(uint256 => Block) internal _blocks;
-    mapping(uint256 => address) internal _owners;
-    /// @dev `row * WORDS_PER_ROW + col / 8` → eight 32-bit block ids, column `col % 8` in lane `col % 8`.
-    mapping(uint256 => uint256) internal _cellWords;
-
-    /// @dev Deleted on every transfer, so a grant never outlives the owner who made it — including
-    /// across A→B→A, which a grantor check alone would revive.
-    mapping(uint256 => address) internal _editors;
-    mapping(address => uint256) public editorNonces;
-
-    mapping(address => uint256) public pendingWithdrawals;
-
-    /// @notice What a block is listed for, in the settlement token's units; zero when it is not for
-    /// sale. Deleted whenever the block changes hands or loses cells to a take, so a listing only
-    /// ever names a price its current owner set for what the block is now.
-    mapping(uint256 => uint256) public listPrice;
-
-    /// @notice A block offered for rent: its daily rate and the longest term it may be taken for. A
-    /// rate of zero is not offered. Ends on any change of owner and on a take of any of its cells.
-    struct RentListing {
-        uint192 ratePerDay;
-        uint64 maxDurationSecs;
-    }
-
-    /// @notice A block's tenancy. `prepaid` is the rent net of both cuts, escrowed here and streamed
-    /// to whoever owns the block, linearly from `start` to `expiry`; `claimed` is what has been
-    /// credited of it. `tenantHash` is the tenant's picture, shown instead of the owner's while the
-    /// term is live — held apart, so the owner's picture returns by itself when it ends and nothing
-    /// needs to end a rental. `expiry` zero is no tenancy.
-    struct Rental {
-        address tenant;
-        uint40 start;
-        uint40 expiry;
-        uint128 prepaid;
-        uint128 claimed;
-        bytes32 tenantHash;
-    }
-
-    mapping(uint256 => RentListing) public rentListing;
-    mapping(uint256 => Rental) internal _rentals;
-
-    Zone[] internal _zones;
-
-    // ---------------------------------------------------------------------
-    // Errors and events
-    // ---------------------------------------------------------------------
-
-    error AlreadyInitialized();
-    error ZeroAddress();
-    error InvalidConfig();
-    error EmptyBlock();
-    error OutsideGrid();
-    error CellsTaken();
-    error CellsKept();
-    error CoolingDown();
-    error TooLarge();
-    error TooManyBlocks();
-    error PriceTooHigh();
-    error NotBlockOwner();
-    error NotBlockEditor();
-    error InvalidSignature();
-    error DeadlineExpired();
-    error NothingToWithdraw();
-    error InvalidPrice();
-    error NotListed();
-    error PriceChanged();
-    error NotBoardHolder();
-    error NothingLeft();
-    error NotForRent();
-    error RateChanged();
-    error TermTooLong();
-    error RentalActive();
-    error RentalExpired();
-    error NotTenant();
-
-    event BoardInitialized(
-        address indexed collection,
-        uint256 indexed boardTokenId,
-        address settlementToken,
-        uint16 gridCols,
-        uint16 gridRows,
-        uint256 cellPrice
-    );
-    /// @param total What the whole rectangle cost: its free cells and every cell it took.
-    /// @param protocolCut The protocol's share of `total`.
-    /// @param seller Who was credited the rest, after every `CellsLost` payout: the board NFT's
-    /// holder at the moment of the sale.
-    event BlockBought(
-        uint256 indexed blockId,
-        address indexed payer,
-        address indexed recipient,
-        uint16 col,
-        uint16 row,
-        uint16 cols,
-        uint16 rows,
-        uint256 total,
-        uint256 protocolCut,
-        address seller
-    );
-    /// @notice A block lost `cells` cells to the new block `toBlockId`, and its owner was credited
-    /// `payout` for them. Once per covered block per rectangle, before the new block's `BlockBought`.
-    event CellsLost(
-        uint256 indexed fromBlockId, uint256 indexed toBlockId, address indexed owner, uint256 cells, uint256 payout
-    );
-    /// @notice A block the creator kept at creation: no payment, no protocol cut.
-    event BlockKept(uint256 indexed blockId, address indexed owner, uint16 col, uint16 row, uint16 cols, uint16 rows);
-    event ZoneSet(uint256 indexed index, uint16 col, uint16 row, uint16 cols, uint16 rows, uint256 cellPrice);
-    event BlockTransferred(uint256 indexed blockId, address indexed from, address indexed to);
-    event BlockEdited(uint256 indexed blockId, address indexed editor, bytes32 contentHash, uint32 version);
-    event EditorSet(uint256 indexed blockId, address indexed editor, address indexed grantor);
-    event Withdrawn(address indexed account, uint256 amount);
-    /// @param holder Who lowered them: the board NFT's holder at that moment.
-    event PricesLowered(address indexed holder, uint256 priceBps);
-    event BlockListed(uint256 indexed blockId, address indexed owner, uint256 price);
-    event BlockDelisted(uint256 indexed blockId, address indexed owner);
-    /// @notice A rent listing set, or ended with a `ratePerDay` of zero.
-    event RentListed(uint256 indexed blockId, address indexed owner, uint256 ratePerDay, uint256 maxDurationSecs);
-    /// @param cost What the tenant paid; the protocol and the board's holder were credited their 5% each.
-    event BlockRented(uint256 indexed blockId, address indexed tenant, address indexed payer, uint256 expiry, uint256 cost);
-    event RentalExtended(uint256 indexed blockId, address indexed tenant, uint256 expiry, uint256 cost);
-    /// @notice Rent streamed so far, credited to whoever owned the block while it accrued.
-    event RentClaimed(uint256 indexed blockId, address indexed owner, uint256 amount);
-    /// @notice A take cost the tenancy `cells` cells; the tenant was credited the unearned rent for them.
-    event RentRefunded(uint256 indexed blockId, address indexed tenant, uint256 cells, uint256 amount);
-    /// @param blockSeller Who sold it, and was credited `price − protocolCut − royalty`.
-    /// @param boardHolder Who held the board's NFT at the moment of the sale, and was credited `royalty`.
-    event BlockResold(
-        uint256 indexed blockId,
-        address indexed payer,
-        address indexed recipient,
-        address blockSeller,
-        uint256 price,
-        uint256 protocolCut,
-        uint256 royalty,
-        address boardHolder
-    );
+    /// @notice The set-up and rentals, DELEGATECALLed. Its protocol immutables are this one's.
+    address public immutable extension;
+    /// @notice What builds this board's metadata. Fixed for every board of this implementation.
+    address public immutable renderer;
 
     // ---------------------------------------------------------------------
     // Construction / initialization
     // ---------------------------------------------------------------------
 
-    constructor(uint256 protocolBps_, address protocolTreasury_) {
-        if (protocolTreasury_ == address(0)) revert ZeroAddress();
-        // A resale pays the protocol and the royalty out of one price; together they cannot exceed it.
-        if (protocolBps_ + RESALE_ROYALTY_BPS > BPS_DENOMINATOR) revert InvalidConfig();
-        protocolBps = protocolBps_;
-        protocolTreasury = protocolTreasury_;
-        _initialized = true;
+    /// @dev The protocol's cut and treasury are READ from the extension, so the two contracts that
+    /// share a board's storage cannot disagree about them.
+    constructor(address extension_, address renderer_)
+        ImageBoardStorage(ImageBoardExtension(extension_).protocolBps(), ImageBoardExtension(extension_).protocolTreasury())
+    {
+        if (renderer_.code.length == 0) revert ZeroAddress();
+        extension = extension_;
+        renderer = renderer_;
     }
 
-    /// @notice Called by the collection, in the transaction that clones this board. `msg.sender`
-    /// becomes the collection: a clone initialized by anyone else is not one of ours, because our
-    /// collection does not know it and will not take its updates. `creator_` owns the kept blocks;
-    /// the collection has already refused a zero one. `config` is an ABI-encoded `Config`: the
-    /// collection passes it through unread, so a later implementation may take another shape.
-    /// The collection checks `settlementToken` against its allowlist after this returns.
-    function initialize(uint256 boardTokenId_, address creator_, bytes calldata config) external {
-        if (_initialized) revert AlreadyInitialized();
-        _initialized = true;
-        Config memory cfg = abi.decode(config, (Config));
-        if (cfg.settlementToken == address(0)) revert ZeroAddress();
-        if (cfg.cellSize < MIN_CELL_SIZE || cfg.cellSize > MAX_CELL_SIZE) revert InvalidConfig();
-        if (cfg.cellPrice == 0 || cfg.imageHash == bytes32(0)) revert InvalidConfig();
-        Terms memory t = cfg.terms;
-        TermsLib.checkEconomicsAbsolute(
-            TermsLib.Economics(t.takeBps, t.payoutBps, t.reversionBps, t.maxReversionWeeks, t.cooldownSecs),
-            protocolBps
-        );
+    /// @notice Called by the collection, in the transaction that clones this board; run by the
+    /// extension (`ImageBoardExtension.initialize`).
+    function initialize(uint256, address, bytes calldata) external {
+        _delegate();
+    }
 
-        uint256 cols = cfg.width / cfg.cellSize;
-        uint256 rows = cfg.height / cfg.cellSize;
-        if (cols == 0 || cols > MAX_GRID_COLS || rows == 0 || rows > MAX_GRID_ROWS) revert InvalidConfig();
-
-        collection = msg.sender;
-        boardTokenId = boardTokenId_;
-        settlementToken = cfg.settlementToken;
-        width = cfg.width;
-        height = cfg.height;
-        cellSize = cfg.cellSize;
-        gridCols = uint16(cols);
-        gridRows = uint16(rows);
-        cellPrice = cfg.cellPrice;
-        imageHash = cfg.imageHash;
-        priceBps = BPS_DENOMINATOR;
-        creator = creator_;
-        // The clamps above bound every one of these well inside its width.
-        takeBps = uint16(t.takeBps);
-        payoutBps = uint16(t.payoutBps);
-        reversionBps = uint16(t.reversionBps);
-        maxReversionWeeks = uint8(t.maxReversionWeeks);
-        cooldownSecs = uint32(t.cooldownSecs);
-        freeCells = cols * rows;
-
-        emit BoardInitialized(msg.sender, boardTokenId_, cfg.settlementToken, uint16(cols), uint16(rows), cfg.cellPrice);
-
-        _setZones(cfg.zones, rows);
-        for (uint256 i = 0; i < cfg.kept.length; i++) {
-            Rect memory k = cfg.kept[i];
-            uint256 blockId = _keep(creator_, k);
-            emit BlockKept(blockId, creator_, k.col, k.row, k.cols, k.rows);
+    /// @dev Runs this call's own calldata in the extension, in this board's storage, and returns or
+    /// reverts with exactly what it did.
+    function _delegate() internal {
+        address ext = extension;
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            let ok := delegatecall(gas(), ext, 0, calldatasize(), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            if iszero(ok) { revert(0, returndatasize()) }
+            return(0, returndatasize())
         }
-        keptCount = uint32(cfg.kept.length);
-    }
-
-    /// @dev Overlap is checked on a bitmap in memory, one word per row, so it costs the zones' rows
-    /// rather than every pair of zones. A zone may cover kept cells: those are never sold first-hand,
-    /// so the zone's price applies to them only if the creator lets them go and someone takes them.
-    function _setZones(Zone[] memory given, uint256 rows) internal {
-        if (given.length > MAX_ZONES) revert InvalidConfig();
-        uint256[] memory covered = new uint256[](rows);
-        for (uint256 i = 0; i < given.length; i++) {
-            Zone memory z = given[i];
-            if (z.cellPrice == 0 || z.cols == 0 || z.rows == 0) revert InvalidConfig();
-            if (uint256(z.col) + z.cols > gridCols || uint256(z.row) + z.rows > gridRows) revert InvalidConfig();
-            uint256 mask = _mask(z.col, z.cols);
-            for (uint256 r = z.row; r < uint256(z.row) + z.rows; r++) {
-                if (covered[r] & mask != 0) revert InvalidConfig();
-                covered[r] |= mask;
-            }
-            _zones.push(z);
-            emit ZoneSet(i, z.col, z.row, z.cols, z.rows, z.cellPrice);
-        }
-    }
-
-    function _mask(uint16 col, uint16 cols) internal pure returns (uint256) {
-        // `cols` is at most 256 here; `1 << 256` is zero, and all ones is the right answer.
-        return (cols == MAX_GRID_COLS ? type(uint256).max : (uint256(1) << cols) - 1) << col;
-    }
-
-    /// @dev A kept block: free cells only (two kept blocks that overlap revert `CellsTaken`), worth
-    /// its creation prices (level 10,000), for nothing.
-    function _keep(address owner_, Rect memory k) internal returns (uint256 blockId) {
-        if (k.cols == 0 || k.rows == 0) revert EmptyBlock();
-        if (uint256(k.col) + k.cols > gridCols || uint256(k.row) + k.rows > gridRows) revert OutsideGrid();
-        uint256 end = uint256(k.col) + k.cols;
-        for (uint256 r = k.row; r < uint256(k.row) + k.rows; r++) {
-            for (uint256 c = k.col; c < end; c++) {
-                if (_idAt(r, c) != 0) revert CellsTaken();
-            }
-        }
-        uint256 cells = uint256(k.cols) * k.rows;
-        blockId = _record(owner_, k, BPS_DENOMINATOR, cells);
-        freeCells -= cells;
-    }
-
-    /// @notice Who is paid for the next square sold: whoever holds this board's NFT right now.
-    function seller() public view returns (address) {
-        return IImageBoardCollection(collection).ownerOf(boardTokenId);
     }
 
     /// @notice Lowers every FREE square's price to `newPriceBps` of what was set at creation — the
@@ -595,8 +240,8 @@ contract ImageBoard is ReentrancyGuardTransient {
     }
 
     /// @dev Walks the rectangle row by row and tallies its cells by the block that holds them, each
-    /// cell at its creation price. Stops at the first covered block that refuses: kept, cooling down,
-    /// or one past the buy's block cap.
+    /// cell at its creation price. Stops at the first covered block that refuses: cooling down, or one
+    /// past the buy's block cap.
     function _survey(Rect memory k, Scratch memory s, uint256 takenSoFar) internal view returns (Survey memory v) {
         uint256[] memory prices = _pricesOf(k, s.zones);
         Run memory run = Run({ id: type(uint256).max, base: 0, cells: 0, takenSoFar: takenSoFar });
@@ -706,10 +351,6 @@ contract ImageBoard is ReentrancyGuardTransient {
         }
         Block storage b = _blocks[id];
         address owner_ = _owners[id];
-        if (id <= keptCount && owner_ == creator) {
-            v.err = CellsKept.selector;
-            return;
-        }
         uint256 boughtAt = b.boughtAt;
         if (block.timestamp < boughtAt + cooldownSecs) {
             v.err = CoolingDown.selector;
@@ -823,7 +464,7 @@ contract ImageBoard is ReentrancyGuardTransient {
         pendingWithdrawals[protocolTreasury] += sum.cut;
 
         IERC20(settlementToken).safeTransferFrom(msg.sender, address(this), sum.total);
-        IImageBoardCollection(collection).boardChanged();
+        _changed();
     }
 
     /// @dev A buy's running figures, so `_buy` stays inside the stack.
@@ -858,6 +499,7 @@ contract ImageBoard is ReentrancyGuardTransient {
                 emit BlockDelisted(from, owner_);
             }
             emit CellsLost(from, blockId, owner_, s.counts[i], payout);
+            emit MetadataUpdate(from);
             s.table[s.slots[i]] = 0;
         }
         freeCells -= v.freeCells;
@@ -869,7 +511,8 @@ contract ImageBoard is ReentrancyGuardTransient {
         emit BlockBought(blockId, msg.sender, recipient, k.col, k.row, k.cols, k.rows, total, cut, sum.holder);
     }
 
-    /// @dev Paints the rectangle with a new block's id and records the block.
+    /// @dev Paints the rectangle with a new block's id, records the block and mints its token. No
+    /// receiver callback: a buy to a contract can be neither refused nor re-entered by it.
     function _record(address owner_, Rect memory k, uint256 level, uint256 cells) internal returns (uint256 blockId) {
         blockId = ++blockCount;
         // Four billion blocks on one board; past it an id would not fit its cell.
@@ -901,41 +544,175 @@ contract ImageBoard is ReentrancyGuardTransient {
             contentHash: bytes32(0)
         });
         _owners[blockId] = owner_;
-    }
-
-    function _idAt(uint256 row, uint256 col) internal view returns (uint256) {
-        return (_cellWords[row * WORDS_PER_ROW + col / CELLS_PER_WORD] >> ((col % CELLS_PER_WORD) * ID_BITS)) & ID_MASK;
+        unchecked {
+            _balances[owner_] += 1;
+        }
+        emit Transfer(address(0), owner_, blockId);
     }
 
     // ---------------------------------------------------------------------
-    // Owning a block
+    // Blocks as tokens (ERC-721)
     // ---------------------------------------------------------------------
 
-    /// @notice Zero for an id never sold.
-    function ownerOf(uint256 blockId) public view returns (address) {
-        return _owners[blockId];
+    /// @notice Reverts for an id never sold, as ERC-721 requires.
+    function ownerOf(uint256 blockId) public view returns (address owner_) {
+        owner_ = _owners[blockId];
+        if (owner_ == address(0)) revert NoSuchBlock();
     }
 
-    /// @notice Hands a block to someone else, for nothing. Its owner alone. There are no approvals:
-    /// a block is given, sold through its own listing (`buyListedBlock`), or taken cell by cell.
-    function transferBlock(uint256 blockId, address to) external {
-        address from = _owners[blockId];
-        // An unsold id's owner is zero, which no caller is.
-        if (from != msg.sender) revert NotBlockOwner();
+    function balanceOf(address account) external view returns (uint256) {
+        if (account == address(0)) revert ZeroAddress();
+        return _balances[account];
+    }
+
+    function getApproved(uint256 blockId) external view returns (address) {
+        ownerOf(blockId);
+        return _approvals[blockId];
+    }
+
+    function isApprovedForAll(address owner_, address operator) external view returns (bool) {
+        return _operators[owner_][operator];
+    }
+
+    /// @notice An approval moves a block and nothing else: editing, naming an editor, listing and
+    /// offering for rent stay the owner's.
+    function approve(address spender, uint256 blockId) external {
+        address owner_ = _owners[blockId];
+        if (msg.sender != owner_ && !_operators[owner_][msg.sender]) revert NotAuthorized();
+        _approvals[blockId] = spender;
+        emit Approval(owner_, spender, blockId);
+    }
+
+    function setApprovalForAll(address operator, bool approved) external {
+        _operators[msg.sender][operator] = approved;
+        emit ApprovalForAll(msg.sender, operator, approved);
+    }
+
+    function transferFrom(address from, address to, uint256 blockId) public nonReentrant {
+        // An unsold id's owner is zero, so a zero `from` would match it: refused outright.
+        if (from == address(0) || from != _owners[blockId]) revert NotBlockOwner();
         if (to == address(0)) revert ZeroAddress();
+        if (msg.sender != from && !_operators[from][msg.sender] && msg.sender != _approvals[blockId]) {
+            revert NotAuthorized();
+        }
         _move(blockId, from, to);
     }
 
-    /// @dev Every change of a block's owner: the editor grant and the listing both belonged to the
-    /// old owner, so both end here.
+    function safeTransferFrom(address from, address to, uint256 blockId) external {
+        safeTransferFrom(from, to, blockId, "");
+    }
+
+    /// @dev The receiver is asked after the block has moved and the guard is released, as ERC-721
+    /// implementations do; a wrong answer undoes the whole transfer.
+    function safeTransferFrom(address from, address to, uint256 blockId, bytes memory data) public {
+        transferFrom(from, to, blockId);
+        if (to.code.length != 0) {
+            if (IERC721Receiver(to).onERC721Received(msg.sender, from, blockId, data) != IERC721Receiver.onERC721Received.selector) {
+                revert UnsafeRecipient();
+            }
+        }
+    }
+
+    /// @dev Every change of a block's owner — a transfer, a gift, a resale — comes through here. What
+    /// the tenancy streamed so far was earned by the owner who held it; the rent offer, the listing,
+    /// the editor grant and the approval were theirs too, so all end. The tenancy survives.
     function _move(uint256 blockId, address from, address to) internal {
-        // What the tenancy earned so far was earned by the owner who held it, before it changes hands.
         _settle(blockId, from);
         _endRentListing(blockId, from);
         _owners[blockId] = to;
+        unchecked {
+            _balances[from] -= 1;
+            _balances[to] += 1;
+        }
+        delete _approvals[blockId];
         delete _editors[blockId];
         delete listPrice[blockId];
-        emit BlockTransferred(blockId, from, to);
+        emit Transfer(from, to, blockId);
+    }
+
+    // ---------------------------------------------------------------------
+    // Metadata and the standards around it (spec §13.5, §13.8)
+    // ---------------------------------------------------------------------
+
+    /// @notice This collection's symbol: the Boards collection's, `-`, this board's token id. Read
+    /// from the collection, so no brand is a literal here.
+    function symbol() external view returns (string memory) {
+        return string.concat(IImageBoardCollection(collection).symbol(), "-", LibString.toString(boardTokenId));
+    }
+
+    function tokenURI(uint256 blockId) external view returns (string memory) {
+        ownerOf(blockId);
+        return IImageBoardRenderer(renderer).blockURI(address(this), blockId);
+    }
+
+    /// @notice ERC-7572: this board's collection.
+    function contractURI() external view returns (string memory) {
+        return IImageBoardRenderer(renderer).contractURI(address(this));
+    }
+
+    /// @notice The board's own token's metadata, which the collection's `tokenURI` returns.
+    function boardURI() external view returns (string memory) {
+        return IImageBoardRenderer(renderer).boardURI(address(this));
+    }
+
+    /// @notice ERC-173's read: whoever holds the board's NFT, so they manage this collection's page
+    /// where a marketplace offers that. It grants nothing in this contract, and ownership moves only
+    /// with the board's NFT — so ERC-173 itself (`transferOwnership`) is not claimed.
+    function owner() external view returns (address) {
+        return seller();
+    }
+
+    /// @notice ERC-2981: `RESALE_ROYALTY_BPS` to whoever holds the board's NFT now — what a resale
+    /// here pays them, asked of a sale elsewhere. A marketplace may ignore it.
+    function royaltyInfo(uint256, uint256 salePrice) external view returns (address, uint256) {
+        return (seller(), (salePrice * RESALE_ROYALTY_BPS) / BPS_DENOMINATOR);
+    }
+
+    /// @notice ERC-4907: the tenant while a term is live.
+    function userOf(uint256 blockId) external view returns (address) {
+        Rental storage t = _rentals[blockId];
+        return block.timestamp < t.expiry ? t.tenant : address(0);
+    }
+
+    function userExpires(uint256 blockId) external view returns (uint256) {
+        return _rentals[blockId].expiry;
+    }
+
+    /// @notice A user is made only by a paid term (`rent`). Unlike ERC-4907's reference, a user
+    /// survives a transfer, because the tenancy does.
+    function setUser(uint256, address, uint64) external pure {
+        revert NotAuthorized();
+    }
+
+    /// @notice ERC-5646. Changes with a take, a new picture, a term or a change of listing; not with
+    /// the take price, which falls weekly by the clock with no transaction.
+    function getStateFingerprint(uint256 blockId) external view returns (bytes32) {
+        Block storage b = _blocks[blockId];
+        Rental storage t = _rentals[blockId];
+        RentListing storage l = rentListing[blockId];
+        return keccak256(
+            abi.encode(b.cellsLeft, b.contentHash, shownHash(blockId), t.tenant, t.expiry, listPrice[blockId], l.ratePerDay, l.maxDurationSecs)
+        );
+    }
+
+    /// @notice A term that lapsed with a tenant's picture showing changed the drawn board with no
+    /// transaction. Anyone may announce it, once per term.
+    function poke(uint256 blockId) external {
+        Rental storage t = _rentals[blockId];
+        if (t.poked || t.tenantHash == bytes32(0) || t.expiry == 0 || block.timestamp < t.expiry) revert NotLapsed();
+        t.poked = true;
+        emit MetadataUpdate(blockId);
+        _changed();
+    }
+
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == 0x01ffc9a7 // ERC-165
+            || interfaceId == 0x80ac58cd // ERC-721
+            || interfaceId == 0x5b5e139f // ERC-721 metadata
+            || interfaceId == 0x2a55205a // ERC-2981
+            || interfaceId == 0xad092b5c // ERC-4907
+            || interfaceId == 0x49064906 // ERC-4906
+            || interfaceId == type(IERC5646).interfaceId;
     }
 
     // ---------------------------------------------------------------------
@@ -987,9 +764,7 @@ contract ImageBoard is ReentrancyGuardTransient {
         bytes32 r,
         bytes32 s
     ) external nonReentrant {
-        try IERC20Permit(settlementToken).permit(
-            msg.sender, address(this), expectedPrice, permitDeadline, v, r, s
-        ) { } catch { }
+        _permit(expectedPrice, permitDeadline, v, r, s);
         _resell(blockId, recipient, expectedPrice);
     }
 
@@ -1013,87 +788,35 @@ contract ImageBoard is ReentrancyGuardTransient {
     }
 
     // ---------------------------------------------------------------------
-    // Renting
+    // Renting — run by the extension (spec §12); the reads and the take's part stay here
     // ---------------------------------------------------------------------
 
-    /// @notice Offers a block for rent at `ratePerDay`, for terms up to `maxDurationSecs`; a rate of
-    /// zero ends the offer. Its owner alone, while it still holds a cell. A new rate reaches the next
-    /// rental and the next extension, never a term already paid for.
-    function listForRent(uint256 blockId, uint256 ratePerDay, uint64 maxDurationSecs) external {
-        if (_owners[blockId] != msg.sender) revert NotBlockOwner();
-        if (ratePerDay == 0) {
-            _endRentListing(blockId, msg.sender);
-            return;
-        }
-        if (_blocks[blockId].cellsLeft == 0) revert NothingLeft();
-        if (maxDurationSecs < MIN_RENTAL_DURATION || maxDurationSecs > MAX_RENTAL_TERM) revert TermTooLong();
-        rentListing[blockId] = RentListing({ ratePerDay: SafeCast.toUint192(ratePerDay), maxDurationSecs: maxDurationSecs });
-        emit RentListed(blockId, msg.sender, ratePerDay, maxDurationSecs);
+    function listForRent(uint256, uint256, uint64) external {
+        _delegate();
     }
 
-    /// @notice Rents a block for `tenant` for `durationSecs` from now, at exactly `expectedRatePerDay`
-    /// — the owner can change the rate at any time, including while this is on its way. The payer
-    /// pays the whole term up front: 5% to the protocol, 5% to whoever holds the board's NFT, and the
-    /// rest held here and streamed to whoever owns the block as the term runs. A rental starting ends
-    /// any resale listing, so nobody buys a block whose term they were not shown.
-    function rent(uint256 blockId, address tenant, uint64 durationSecs, uint256 expectedRatePerDay) external nonReentrant {
-        _rent(blockId, tenant, durationSecs, expectedRatePerDay);
+    function rent(uint256, address, uint64, uint256) external {
+        _delegate();
     }
 
-    /// @notice `rent` in one transaction: the payer's EIP-2612 signature for exactly the term's cost.
-    function rentWithPermit(
-        uint256 blockId,
-        address tenant,
-        uint64 durationSecs,
-        uint256 expectedRatePerDay,
-        uint256 permitDeadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external nonReentrant {
-        _permit(RentalsLib.rentCost(expectedRatePerDay, durationSecs), permitDeadline, v, r, s);
-        _rent(blockId, tenant, durationSecs, expectedRatePerDay);
+    function rentWithPermit(uint256, address, uint64, uint256, uint256, uint8, bytes32, bytes32) external {
+        _delegate();
     }
 
-    /// @notice The tenant makes their term `durationSecs` from now, at the CURRENT rate — an
-    /// incumbent never keeps an old rate. What they paid and has not yet streamed carries into the
-    /// new term. Live terms only; the owner ends the possibility by ending the offer.
-    function extendRental(uint256 blockId, uint64 durationSecs, uint256 expectedRatePerDay) external nonReentrant {
-        _extend(blockId, durationSecs, expectedRatePerDay);
+    function extendRental(uint256, uint64, uint256) external {
+        _delegate();
     }
 
-    function extendRentalWithPermit(
-        uint256 blockId,
-        uint64 durationSecs,
-        uint256 expectedRatePerDay,
-        uint256 permitDeadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external nonReentrant {
-        _permit(RentalsLib.rentCost(expectedRatePerDay, durationSecs), permitDeadline, v, r, s);
-        _extend(blockId, durationSecs, expectedRatePerDay);
+    function extendRentalWithPermit(uint256, uint64, uint256, uint256, uint8, bytes32, bytes32) external {
+        _delegate();
     }
 
-    /// @notice Credits each block's owner the rent streamed to them so far. Permissionless: it only
-    /// ever pays whoever owns the block, so it grants nothing.
-    function claimRent(uint256[] calldata blockIds) external {
-        for (uint256 i = 0; i < blockIds.length; i++) {
-            _settle(blockIds[i], _owners[blockIds[i]]);
-        }
+    function claimRent(uint256[] calldata) external {
+        _delegate();
     }
 
-    /// @notice The tenant's picture for their term. The owner's picture is untouched and returns when
-    /// the term ends; the owner may change it meanwhile.
-    function editRented(uint256 blockId, bytes32 contentHash) external {
-        Rental storage t = _rentals[blockId];
-        if (block.timestamp >= t.expiry) revert RentalExpired();
-        if (msg.sender != t.tenant) revert NotTenant();
-        t.tenantHash = contentHash;
-        Block storage b = _blocks[blockId];
-        b.version += 1;
-        emit BlockEdited(blockId, msg.sender, contentHash, b.version);
-        IImageBoardCollection(collection).boardChanged();
+    function editRented(uint256, bytes32) external {
+        _delegate();
     }
 
     /// @notice The picture the block shows now: the tenant's while a term is live and they have
@@ -1106,79 +829,6 @@ contract ImageBoard is ReentrancyGuardTransient {
 
     function rentalOf(uint256 blockId) external view returns (Rental memory) {
         return _rentals[blockId];
-    }
-
-    function _rent(uint256 blockId, address tenant, uint64 durationSecs, uint256 expectedRatePerDay) internal {
-        if (tenant == address(0)) revert ZeroAddress();
-        RentListing memory l = _checkRate(blockId, durationSecs, expectedRatePerDay);
-        address owner_ = _owners[blockId];
-        Rental storage t = _rentals[blockId];
-        if (block.timestamp < t.expiry) revert RentalActive();
-        // A lapsed term's last stream is its owner's before a new one starts.
-        _settle(blockId, owner_);
-        uint256 cost = RentalsLib.rentCost(l.ratePerDay, durationSecs);
-        uint256 expiry = block.timestamp + durationSecs;
-        t.tenant = tenant;
-        t.start = uint40(block.timestamp);
-        t.expiry = uint40(expiry);
-        t.prepaid = SafeCast.toUint128(_book(cost));
-        t.claimed = 0;
-        delete t.tenantHash;
-        if (listPrice[blockId] != 0) {
-            delete listPrice[blockId];
-            emit BlockDelisted(blockId, owner_);
-        }
-        emit BlockRented(blockId, tenant, msg.sender, expiry, cost);
-    }
-
-    function _extend(uint256 blockId, uint64 durationSecs, uint256 expectedRatePerDay) internal {
-        Rental storage t = _rentals[blockId];
-        if (block.timestamp >= t.expiry) revert RentalExpired();
-        if (msg.sender != t.tenant) revert NotTenant();
-        RentListing memory l = _checkRate(blockId, durationSecs, expectedRatePerDay);
-        _settle(blockId, _owners[blockId]);
-        uint256 cost = RentalsLib.rentCost(l.ratePerDay, durationSecs);
-        uint256 expiry = block.timestamp + durationSecs;
-        // Settle, then restart: the unstreamed remainder rolls into the new term with the new rent.
-        t.prepaid = SafeCast.toUint128(t.prepaid - t.claimed + _book(cost));
-        t.claimed = 0;
-        t.start = uint40(block.timestamp);
-        t.expiry = uint40(expiry);
-        emit RentalExtended(blockId, msg.sender, expiry, cost);
-    }
-
-    /// @dev The offer the payer agreed to, and a term inside it.
-    function _checkRate(uint256 blockId, uint64 durationSecs, uint256 expectedRatePerDay)
-        internal
-        view
-        returns (RentListing memory l)
-    {
-        l = rentListing[blockId];
-        if (l.ratePerDay == 0) revert NotForRent();
-        if (l.ratePerDay != expectedRatePerDay) revert RateChanged();
-        if (durationSecs < MIN_RENTAL_DURATION || durationSecs > l.maxDurationSecs) revert TermTooLong();
-    }
-
-    /// @dev Pulls a term's `cost` from the payer, credits the protocol and the board's holder, and
-    /// returns the rest, which the caller escrows in the tenancy.
-    function _book(uint256 cost) internal returns (uint256 net) {
-        uint256 cut;
-        uint256 royalty;
-        (cut, royalty, net) = RentalsLib.rentSplit(cost, protocolBps, RENT_ROYALTY_BPS);
-        pendingWithdrawals[protocolTreasury] += cut;
-        pendingWithdrawals[seller()] += royalty;
-        IERC20(settlementToken).safeTransferFrom(msg.sender, address(this), cost);
-    }
-
-    /// @dev Credits `owner_` the rent streamed since the last settlement. Nothing when unrented.
-    function _settle(uint256 blockId, address owner_) internal {
-        Rental storage t = _rentals[blockId];
-        uint256 accrued = RentalsLib.accruedOf(t.prepaid, t.start, t.expiry, block.timestamp);
-        uint256 due = accrued - t.claimed;
-        if (due == 0) return;
-        t.claimed = uint128(accrued);
-        pendingWithdrawals[owner_] += due;
-        emit RentClaimed(blockId, owner_, due);
     }
 
     /// @dev A take cost a rented block `lost` of its `before` cells. The owner is credited what has
@@ -1197,17 +847,6 @@ contract ImageBoard is ReentrancyGuardTransient {
         emit RentRefunded(blockId, t.tenant, lost, refund);
     }
 
-    function _endRentListing(uint256 blockId, address owner_) internal {
-        if (rentListing[blockId].ratePerDay == 0) return;
-        delete rentListing[blockId];
-        emit RentListed(blockId, owner_, 0, 0);
-    }
-
-    /// @dev A failed `permit` is ignored, as on every buy: without an allowance the pull refuses.
-    function _permit(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) internal {
-        try IERC20Permit(settlementToken).permit(msg.sender, address(this), value, deadline, v, r, s) { } catch { }
-    }
-
     // ---------------------------------------------------------------------
     // Content
     // ---------------------------------------------------------------------
@@ -1221,7 +860,8 @@ contract ImageBoard is ReentrancyGuardTransient {
         b.contentHash = contentHash;
         b.version += 1;
         emit BlockEdited(blockId, msg.sender, contentHash, b.version);
-        IImageBoardCollection(collection).boardChanged();
+        emit MetadataUpdate(blockId);
+        _changed();
     }
 
     function setEditor(uint256 blockId, address editor) external {
@@ -1278,6 +918,7 @@ contract ImageBoard is ReentrancyGuardTransient {
         }
     }
 
+    /// @notice A block's record, zero for an id never sold. (`ownerOf` reverts for one.)
     function blockOf(uint256 blockId) external view returns (Block memory) {
         return _blocks[blockId];
     }

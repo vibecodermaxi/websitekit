@@ -4,8 +4,11 @@ pragma solidity 0.8.30;
 import { Script } from "forge-std/Script.sol";
 import { console2 } from "forge-std/console2.sol";
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
 import { ImageBoardReads } from "../test/ImageBoardReads.sol";
 import { ImageBoardCollection } from "../src/ImageBoardCollection.sol";
+import { ImageBoardExtension } from "../src/ImageBoardExtension.sol";
+import { ImageBoardRenderer } from "../src/ImageBoardRenderer.sol";
 import { TermsLib } from "../src/TermsLib.sol";
 import { TestUSD } from "../src/mocks/TestUSD.sol";
 
@@ -18,12 +21,13 @@ using ImageBoardReads for ImageBoard;
 ///
 ///   - `grid`   — `(width, height, cellSize)` → `(gridCols, gridRows)` or `InvalidConfig`, read off
 ///                a REAL board the collection created (or refused), not recomputed here.
-///   - `layout` — zones and kept blocks → the error `initialize` reverts with, or `none`, from a
-///                real `createBoardFor` on a 12×10 grid (2026-10-11). Every refusal at its boundary.
+///   - `layout` — zones → the error `initialize` reverts with, or `none`, from a real
+///                `createBoardFor` on a 12×10 grid (2026-10-11). Every refusal at its boundary.
+///                (Kept squares were removed with spec §13, 2026-10-21.)
 ///   - `terms`  — a board's five take terms → the error `initialize` reverts with (TermsLib's), or
 ///                `none`, at every clamp and one past it (2026-10-14).
 ///   - `state`  — everything the twin prices a buy against, READ off a real board at one moment:
-///                the grid, prices, zones, terms, creator, kept count, the chain's clock, every
+///                the grid, prices, zones, terms, the chain's clock, every
 ///                non-zero row of `cellRow`, and each block's owner, level and `boughtAt`. The lines
 ///                after it are against that state.
 ///   - `rect`   — `(col, row, cols, rows)` → `blockError`'s answer and `quote`'s total (zero when
@@ -31,10 +35,11 @@ using ImageBoardReads for ImageBoard;
 ///   - `multi`  — a list of rectangles → `buyError`'s answer and `quoteBlocks`' total, each also
 ///                bought for real on a snapshot, asserting the buy reverts with the same error or
 ///                pulls exactly that total.
+///   - `cid`    — a hash or binary CID → the string the renderer writes in metadata (`rawCid`,
+///                `cidOf`, spec §13.7), for the SDK's `contentHashToCid` and `cidBytesToString`.
 ///
 /// Since takeovers (2026-10-14) the states come from a "market" board built by real buys at real
-/// times — blocks taken in part, taken twice, one in its cooldown, a kept block owned and one given
-/// away, zones (one priced near 2^150, so a twin computing in floating point fails), reversion
+/// times — blocks taken in part, taken twice, one in its cooldown, zones (one priced near 2^150, so a twin computing in floating point fails), reversion
 /// partway and past its last week, free squares cut to 3,333 bps — and a board 256 × 600 with 130
 /// one-cell blocks and one wide block in a row, for the word and block caps at their boundaries; and
 /// a board whose reversion stops after two weeks, swept week by week past it.
@@ -60,7 +65,8 @@ contract GenImageGridVectors is Script {
         vm.warp(T0);
         // 60 decimals, so one mint covers buying cells in the zone priced near 2^150.
         usd = new TestUSD("Vector Dollar", "vUSD", 60);
-        ImageBoard implementation = new ImageBoard(500, address(0xBEEF));
+        ImageBoardRenderer renderer = new ImageBoardRenderer("https://example.com/i/boards/", "ipfs://bafyrenderer/");
+        ImageBoard implementation = new ImageBoard(address(new ImageBoardExtension(500, address(0xBEEF))), address(renderer));
         address[] memory tokens = new address[](1);
         tokens[0] = address(usd);
         collection = new ImageBoardCollection("Vector Image Boards", "VIMG", SELLER, address(implementation), tokens, "");
@@ -71,20 +77,23 @@ contract GenImageGridVectors is Script {
         _emitMarket();
         _emitShortReversion();
         _emitCaps();
+        _emitCids(renderer);
         console2.log("GenImageGridVectors: lines", lines);
     }
 
-    function _standard() internal pure returns (ImageBoard.Terms memory) {
-        return ImageBoard.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 });
+    function _standard() internal pure returns (ImageBoardStorage.Terms memory) {
+        return ImageBoardStorage.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 });
     }
 
-    function _config(uint32 w, uint32 h, uint8 cell) internal view returns (ImageBoard.Config memory cfg) {
+    function _config(uint32 w, uint32 h, uint8 cell) internal view returns (ImageBoardStorage.Config memory cfg) {
         cfg.settlementToken = address(usd);
         cfg.width = w;
         cfg.height = h;
         cfg.cellSize = cell;
         cfg.cellPrice = 1;
         cfg.imageHash = keccak256("v");
+        cfg.sourceCid = hex"0155122000";
+        cfg.name = "Vector board";
         cfg.terms = _standard();
     }
 
@@ -135,25 +144,25 @@ contract GenImageGridVectors is Script {
                 (uint16 c, uint16 r) = ImageBoard(b).gridSize();
                 _write(string.concat(head, ',"gridCols":', vm.toString(c), ',"gridRows":', vm.toString(r), ',"error":"none"}'));
             } catch (bytes memory reason) {
-                require(bytes4(reason) == ImageBoard.InvalidConfig.selector, "unexpected refusal");
+                require(bytes4(reason) == ImageBoardStorage.InvalidConfig.selector, "unexpected refusal");
                 _write(string.concat(head, ',"error":"InvalidConfig"}'));
             }
         }
     }
 
     // -----------------------------------------------------------------
-    // Zones and kept blocks
+    // Zones
     // -----------------------------------------------------------------
 
-    function _zone(uint16 c, uint16 r, uint16 w, uint16 h, uint192 p) internal pure returns (ImageBoard.Zone memory) {
-        return ImageBoard.Zone({ col: c, row: r, cols: w, rows: h, cellPrice: p });
+    function _zone(uint16 c, uint16 r, uint16 w, uint16 h, uint192 p) internal pure returns (ImageBoardStorage.Zone memory) {
+        return ImageBoardStorage.Zone({ col: c, row: r, cols: w, rows: h, cellPrice: p });
     }
 
-    function _rect(uint16 c, uint16 r, uint16 w, uint16 h) internal pure returns (ImageBoard.Rect memory) {
-        return ImageBoard.Rect({ col: c, row: r, cols: w, rows: h });
+    function _rect(uint16 c, uint16 r, uint16 w, uint16 h) internal pure returns (ImageBoardStorage.Rect memory) {
+        return ImageBoardStorage.Rect({ col: c, row: r, cols: w, rows: h });
     }
 
-    function _zonesJson(ImageBoard.Zone[] memory z) internal pure returns (string memory out) {
+    function _zonesJson(ImageBoardStorage.Zone[] memory z) internal pure returns (string memory out) {
         out = "[";
         for (uint256 i = 0; i < z.length; i++) {
             out = string.concat(
@@ -174,7 +183,7 @@ contract GenImageGridVectors is Script {
         out = string.concat(out, "]");
     }
 
-    function _keptJson(ImageBoard.Rect[] memory k) internal pure returns (string memory out) {
+    function _rectsJson(ImageBoardStorage.Rect[] memory k) internal pure returns (string memory out) {
         out = "[";
         for (uint256 i = 0; i < k.length; i++) {
             out = string.concat(
@@ -193,78 +202,60 @@ contract GenImageGridVectors is Script {
         out = string.concat(out, "]");
     }
 
-    function _layoutCase(ImageBoard.Zone[] memory zones, ImageBoard.Rect[] memory kept) internal {
-        ImageBoard.Config memory cfg = _config(125, 104, 10);
+    function _layoutCase(ImageBoardStorage.Zone[] memory zones) internal {
+        ImageBoardStorage.Config memory cfg = _config(125, 104, 10);
         cfg.zones = zones;
-        cfg.kept = kept;
         string memory err = "none";
         try collection.createBoardFor(SELLER, abi.encode(cfg)) { }
         catch (bytes memory reason) {
             bytes4 sel = bytes4(reason);
-            if (sel == ImageBoard.InvalidConfig.selector) err = "InvalidConfig";
+            if (sel == ImageBoardStorage.InvalidConfig.selector) err = "InvalidConfig";
             else err = _errorName(sel);
         }
-        _write(string.concat('{"kind":"layout","zones":', _zonesJson(zones), ',"kept":', _keptJson(kept), ',"error":"', err, '"}'));
+        _write(string.concat('{"kind":"layout","zones":', _zonesJson(zones), ',"error":"', err, '"}'));
     }
 
     /// On a 12×10 grid. Each case names the boundary it sits on.
     function _emitLayouts() internal {
-        ImageBoard.Zone[] memory z;
-        ImageBoard.Rect[] memory k = new ImageBoard.Rect[](0);
-        ImageBoard.Zone[] memory none = new ImageBoard.Zone[](0);
+        ImageBoardStorage.Zone[] memory z;
+        ImageBoardStorage.Zone[] memory none = new ImageBoardStorage.Zone[](0);
 
-        _layoutCase(none, k); // the default
-        z = new ImageBoard.Zone[](1);
+        _layoutCase(none); // the default
+        z = new ImageBoardStorage.Zone[](1);
         z[0] = _zone(8, 7, 4, 3, 5); // ends exactly on both edges
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[0] = _zone(9, 0, 4, 1, 5); // one column past
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[0] = _zone(0, 8, 1, 3, 5); // one row past
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[0] = _zone(0, 0, 0, 1, 5); // empty
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[0] = _zone(0, 0, 1, 0, 5);
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[0] = _zone(0, 0, 1, 1, 0); // free
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[0] = _zone(0, 0, 1, 1, 1); // the smallest price
-        _layoutCase(z, k);
+        _layoutCase(z);
 
-        z = new ImageBoard.Zone[](2);
+        z = new ImageBoardStorage.Zone[](2);
         z[0] = _zone(0, 0, 3, 3, 5);
         z[1] = _zone(3, 0, 3, 3, 9); // touching on the right
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[1] = _zone(0, 3, 3, 3, 9); // touching below
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[1] = _zone(2, 2, 3, 3, 9); // sharing one corner cell
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[1] = _zone(1, 1, 1, 1, 9); // inside the first
-        _layoutCase(z, k);
+        _layoutCase(z);
         z[0] = _zone(1, 1, 1, 1, 9); // and the other way round
         z[1] = _zone(0, 0, 3, 3, 5);
-        _layoutCase(z, k);
+        _layoutCase(z);
 
-        k = new ImageBoard.Rect[](2);
-        k[0] = _rect(0, 0, 2, 2);
-        k[1] = _rect(2, 0, 2, 2); // touching
-        _layoutCase(none, k);
-        k[1] = _rect(1, 1, 2, 2); // overlapping
-        _layoutCase(none, k);
-        k[1] = _rect(11, 9, 2, 1); // one past
-        _layoutCase(none, k);
-        k[1] = _rect(11, 9, 1, 1); // the last cell
-        _layoutCase(none, k);
-        k[1] = _rect(5, 5, 0, 1); // empty
-        _layoutCase(none, k);
-
-        // A zone over a kept block is allowed; a bad zone is refused before any kept block is looked at.
-        z = new ImageBoard.Zone[](1);
+        // A bad zone among good ones is refused.
+        z = new ImageBoardStorage.Zone[](2);
         z[0] = _zone(0, 0, 4, 4, 5);
-        k[1] = _rect(4, 4, 1, 1);
-        _layoutCase(z, k);
-        z[0] = _zone(0, 0, 13, 1, 5);
-        k[1] = _rect(1, 1, 2, 2);
-        _layoutCase(z, k);
+        z[1] = _zone(0, 4, 13, 1, 5);
+        _layoutCase(z);
     }
 
     // -----------------------------------------------------------------
@@ -272,8 +263,8 @@ contract GenImageGridVectors is Script {
     // -----------------------------------------------------------------
 
     function _termsCase(uint256 take, uint256 payout, uint256 reversion, uint256 weeks_, uint256 cooldown) internal {
-        ImageBoard.Config memory cfg = _config(125, 104, 10);
-        cfg.terms = ImageBoard.Terms(take, payout, reversion, weeks_, cooldown);
+        ImageBoardStorage.Config memory cfg = _config(125, 104, 10);
+        cfg.terms = ImageBoardStorage.Terms(take, payout, reversion, weeks_, cooldown);
         string memory err = "none";
         try collection.createBoardFor(SELLER, abi.encode(cfg)) { }
         catch (bytes memory reason) {
@@ -346,41 +337,38 @@ contract GenImageGridVectors is Script {
     }
 
     function _emitMarket() internal {
-        ImageBoard.Config memory cfg = _config(125, 104, 10);
+        ImageBoardStorage.Config memory cfg = _config(125, 104, 10);
         cfg.cellPrice = 7;
-        cfg.zones = new ImageBoard.Zone[](3);
+        cfg.zones = new ImageBoardStorage.Zone[](3);
         cfg.zones[0] = _zone(0, 0, 4, 3, 13);
         cfg.zones[1] = _zone(6, 4, 3, 5, 3);
         cfg.zones[2] = _zone(9, 7, 3, 3, uint192(2 ** 150 + 1));
-        cfg.kept = new ImageBoard.Rect[](2);
-        cfg.kept[0] = _rect(10, 8, 2, 2); // stays the creator's
-        cfg.kept[1] = _rect(4, 0, 2, 1); // given away below
         (address created,) = collection.createBoardFor(SELLER, abi.encode(cfg));
         ImageBoard board = ImageBoard(created);
         _fund(board, B1);
         _fund(board, B2);
         _fund(board, B3);
 
-        // A kept block is in its cooldown from creation, and kept is what refuses first.
+        // Nothing sold yet.
         _emitState(board);
         _emitRect(board, _rect(10, 8, 1, 1));
         _emitRect(board, _rect(4, 0, 2, 1));
         _emitRect(board, _rect(3, 0, 3, 1));
 
         uint256 t0 = block.timestamp;
-        _buy(board, B1, 0, 4, 3, 3); // 3: P
-        _buy(board, B2, 8, 0, 4, 1); // 4: Q
-        _buy(board, B3, 9, 6, 2, 2); // 5: in the 2^150 zone
+        _buy(board, B1, 0, 4, 3, 3); // 1: P
+        _buy(board, B2, 8, 0, 4, 1); // 2: Q
+        _buy(board, B3, 9, 6, 2, 2); // 3: in the 2^150 zone
         vm.warp(t0 + HOUR);
-        _buy(board, B3, 1, 5, 3, 1); // 6: R, over P and free cells
-        _buy(board, B1, 6, 4, 3, 3); // 7: S, in a zone
+        _buy(board, B3, 1, 5, 3, 1); // 4: R, over P and free cells
+        _buy(board, B1, 6, 4, 3, 3); // 5: S, in a zone
         vm.warp(t0 + 3 weeks);
-        _buy(board, B1, 2, 5, 1, 2); // 8: W, over R and P: a block taken twice
-        _buy(board, B2, 7, 5, 2, 2); // 9: U, over S
-        _buy(board, B3, 0, 9, 1, 1); // 10: V
-        _buy(board, B2, 10, 6, 1, 1); // 11: over the 2^150 block
-        vm.prank(SELLER);
-        board.transferBlock(2, B1); // the second kept block, given away
+        _buy(board, B1, 2, 5, 1, 2); // 6: W, over R and P: a block taken twice
+        _buy(board, B2, 7, 5, 2, 2); // 7: U, over S
+        _buy(board, B3, 0, 9, 1, 1); // 8: V
+        _buy(board, B2, 10, 6, 1, 1); // 9: over the 2^150 block
+        vm.prank(B2);
+        board.transferFrom(B2, B1, 2); // Q, given away: an owner a take pays is the one now
 
         // Some blocks still cooling.
         vm.warp(t0 + 3 weeks + 30 minutes);
@@ -393,7 +381,7 @@ contract GenImageGridVectors is Script {
         // its last week of reversion.
         vm.prank(SELLER);
         board.lowerPrices(3_333);
-        _buy(board, B3, 3, 8, 2, 1); // 12
+        _buy(board, B3, 3, 8, 2, 1); // 10
         vm.warp(t0 + 60 weeks);
         _sweep(board, false);
     }
@@ -416,7 +404,7 @@ contract GenImageGridVectors is Script {
         }
     }
 
-    function _emitRect(ImageBoard board, ImageBoard.Rect memory k) internal {
+    function _emitRect(ImageBoard board, ImageBoardStorage.Rect memory k) internal {
         bytes4 err = board.blockError(k.col, k.row, k.cols, k.rows);
         uint256 total = err == bytes4(0) ? board.quote(k.col, k.row, k.cols, k.rows) : 0;
         _write(
@@ -439,7 +427,7 @@ contract GenImageGridVectors is Script {
     }
 
     function _emitMarketMultis(ImageBoard board) internal {
-        _multiCase(board, new ImageBoard.Rect[](0)); // nothing to buy
+        _multiCase(board, new ImageBoardStorage.Rect[](0)); // nothing to buy
         _multiCase(board, _list(_rect(0, 0, 1, 1))); // one free
         _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(0, 4, 2, 3))); // free, and a take over two blocks
         _multiCase(board, _list(_rect(0, 0, 2, 2), _rect(2, 0, 2, 2))); // touching
@@ -447,8 +435,7 @@ contract GenImageGridVectors is Script {
         _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(0, 0, 1, 1))); // the same rectangle twice
         _multiCase(board, _list(_rect(0, 4, 1, 1), _rect(1, 4, 1, 1))); // the same block from two rectangles
         _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(7, 5, 1, 1))); // the second on a cooling block
-        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(10, 8, 1, 1))); // the second on a kept block
-        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(4, 0, 2, 1))); // the second on a kept block given away
+        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(8, 0, 2, 1))); // the second on a block given away
         _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(11, 9, 2, 1))); // the second leaves the grid
         _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(5, 5, 0, 1))); // the second empty
         _multiCase(board, _list(_rect(7, 5, 1, 1), _rect(20, 0, 1, 1))); // both bad: the first names it
@@ -457,7 +444,7 @@ contract GenImageGridVectors is Script {
 
     /// The view's answer, then the same list bought for real on a snapshot: the buy must revert with
     /// that error, or pull exactly that total.
-    function _multiCase(ImageBoard board, ImageBoard.Rect[] memory rects) internal {
+    function _multiCase(ImageBoard board, ImageBoardStorage.Rect[] memory rects) internal {
         bytes4 err = board.buyError(rects);
         uint256 total = err == bytes4(0) ? board.quoteBlocks(rects) : 0;
         uint256 snap = vm.snapshotState();
@@ -470,15 +457,15 @@ contract GenImageGridVectors is Script {
             require(bytes4(reason) == err, "the buy refused with another error");
         }
         vm.revertToState(snap);
-        _write(string.concat('{"kind":"multi","rects":', _keptJson(rects), ',"error":"', _errorName(err), '","total":"', vm.toString(total), '"}'));
+        _write(string.concat('{"kind":"multi","rects":', _rectsJson(rects), ',"error":"', _errorName(err), '","total":"', vm.toString(total), '"}'));
     }
 
     /// Terms whose reversion stops after two weeks: past them a taken block's floor holds, which a
     /// board reverting for 52 weeks never shows (its floors reach the creation price first).
     function _emitShortReversion() internal {
-        ImageBoard.Config memory cfg = _config(125, 104, 10);
+        ImageBoardStorage.Config memory cfg = _config(125, 104, 10);
         cfg.cellPrice = 1_000_003;
-        cfg.terms = ImageBoard.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_900, maxReversionWeeks: 2, cooldownSecs: 3_600 });
+        cfg.terms = ImageBoardStorage.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_900, maxReversionWeeks: 2, cooldownSecs: 3_600 });
         (address created,) = collection.createBoardFor(SELLER, abi.encode(cfg));
         ImageBoard board = ImageBoard(created);
         _fund(board, B1);
@@ -505,7 +492,7 @@ contract GenImageGridVectors is Script {
         (address created,) = collection.createBoardFor(SELLER, abi.encode(_config(2560, 6000, 10)));
         ImageBoard board = ImageBoard(created);
         _fund(board, B1);
-        ImageBoard.Rect[] memory ones = new ImageBoard.Rect[](130);
+        ImageBoardStorage.Rect[] memory ones = new ImageBoardStorage.Rect[](130);
         for (uint16 i = 0; i < 130; i++) {
             ones[i] = _rect(i, 20, 1, 1);
         }
@@ -565,10 +552,6 @@ contract GenImageGridVectors is Script {
             _zonesJson(board.zones()),
             ',"terms":',
             _termsJson(board),
-            ',"creator":"',
-            vm.toString(board.creator()),
-            '","keptCount":',
-            vm.toString(board.keptCount()),
             ',"now":"',
             vm.toString(block.timestamp),
             '"'
@@ -616,7 +599,7 @@ contract GenImageGridVectors is Script {
         out = "[";
         uint256 n = board.blockCount();
         for (uint256 id = 1; id <= n; id++) {
-            ImageBoard.Block memory b = board.blockOf(id);
+            ImageBoardStorage.Block memory b = board.blockOf(id);
             out = string.concat(
                 out,
                 id == 1 ? "[" : ",[",
@@ -634,41 +617,65 @@ contract GenImageGridVectors is Script {
         out = string.concat(out, "]");
     }
 
-    function _rectJson(ImageBoard.Block memory b) internal pure returns (string memory) {
+    function _rectJson(ImageBoardStorage.Block memory b) internal pure returns (string memory) {
         return string.concat(vm.toString(b.col), ",", vm.toString(b.row), ",", vm.toString(b.cols), ",", vm.toString(b.rows), "]");
     }
 
-    function _list(ImageBoard.Rect memory a) internal pure returns (ImageBoard.Rect[] memory l) {
-        l = new ImageBoard.Rect[](1);
+    function _list(ImageBoardStorage.Rect memory a) internal pure returns (ImageBoardStorage.Rect[] memory l) {
+        l = new ImageBoardStorage.Rect[](1);
         l[0] = a;
     }
 
-    function _list(ImageBoard.Rect memory a, ImageBoard.Rect memory b) internal pure returns (ImageBoard.Rect[] memory l) {
-        l = new ImageBoard.Rect[](2);
+    function _list(ImageBoardStorage.Rect memory a, ImageBoardStorage.Rect memory b) internal pure returns (ImageBoardStorage.Rect[] memory l) {
+        l = new ImageBoardStorage.Rect[](2);
         l[0] = a;
         l[1] = b;
     }
 
-    function _list3(ImageBoard.Rect memory a, ImageBoard.Rect memory b, ImageBoard.Rect memory c)
+    function _list3(ImageBoardStorage.Rect memory a, ImageBoardStorage.Rect memory b, ImageBoardStorage.Rect memory c)
         internal
         pure
-        returns (ImageBoard.Rect[] memory l)
+        returns (ImageBoardStorage.Rect[] memory l)
     {
-        l = new ImageBoard.Rect[](3);
+        l = new ImageBoardStorage.Rect[](3);
         l[0] = a;
         l[1] = b;
         l[2] = c;
     }
 
+    // -----------------------------------------------------------------
+    // Addresses (spec §13.7)
+    // -----------------------------------------------------------------
+
+    /// What the renderer writes for a picture's hash and for a source's binary CID: the SDK's
+    /// encoders must write the same. Hashes at the edges of the alphabet, and CIDs of every length
+    /// mod 5 (base32 pads differently for each).
+    function _emitCids(ImageBoardRenderer renderer) internal {
+        bytes32[4] memory hashes = [bytes32(0), bytes32(type(uint256).max), sha256("hello"), keccak256("v")];
+        for (uint256 i = 0; i < hashes.length; i++) {
+            _write(string.concat('{"kind":"cid","hash":"', vm.toString(hashes[i]), '","cid":"', renderer.rawCid(hashes[i]), '"}'));
+        }
+        bytes[6] memory cids = [
+            bytes(hex"01"),
+            hex"0170",
+            hex"017012",
+            hex"01701220",
+            hex"0170122000",
+            abi.encodePacked(hex"0170122020", sha256("source"))
+        ];
+        for (uint256 i = 0; i < cids.length; i++) {
+            _write(string.concat('{"kind":"cid","bytes":"', vm.toString(cids[i]), '","cid":"', renderer.cidOf(cids[i]), '"}'));
+        }
+    }
+
     function _errorName(bytes4 err) internal pure returns (string memory) {
         if (err == bytes4(0)) return "none";
-        if (err == ImageBoard.EmptyBlock.selector) return "EmptyBlock";
-        if (err == ImageBoard.OutsideGrid.selector) return "OutsideGrid";
-        if (err == ImageBoard.CellsTaken.selector) return "CellsTaken";
-        if (err == ImageBoard.CellsKept.selector) return "CellsKept";
-        if (err == ImageBoard.CoolingDown.selector) return "CoolingDown";
-        if (err == ImageBoard.TooLarge.selector) return "TooLarge";
-        if (err == ImageBoard.TooManyBlocks.selector) return "TooManyBlocks";
+        if (err == ImageBoardStorage.EmptyBlock.selector) return "EmptyBlock";
+        if (err == ImageBoardStorage.OutsideGrid.selector) return "OutsideGrid";
+        if (err == ImageBoardStorage.CellsTaken.selector) return "CellsTaken";
+        if (err == ImageBoardStorage.CoolingDown.selector) return "CoolingDown";
+        if (err == ImageBoardStorage.TooLarge.selector) return "TooLarge";
+        if (err == ImageBoardStorage.TooManyBlocks.selector) return "TooManyBlocks";
         revert("unknown buy error");
     }
 

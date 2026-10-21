@@ -40,6 +40,7 @@ export const TARGETS = [
   ['Attestor.sol', 'Attestor', 'Attestor.json'],
   ['ImageBoard.sol', 'ImageBoard', 'ImageBoard.json'],
   ['ImageBoardCollection.sol', 'ImageBoardCollection', 'ImageBoardCollection.json'],
+  ['ImageBoardRenderer.sol', 'ImageBoardRenderer', 'ImageBoardRenderer.json'],
 ];
 
 let wrote = 0;

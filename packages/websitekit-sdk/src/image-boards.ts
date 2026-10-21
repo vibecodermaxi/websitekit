@@ -3,13 +3,19 @@
  * (`docs/IMAGE-BOARD-SPEC.md`). Import from `@websitekit/sdk/image-boards`.
  *
  * A seller uploads a picture; buyers buy rectangular blocks of its squares and put their own
- * pictures in them. **The board is the NFT, a block is not**: each board is one token in a
- * collection, minted to its seller when it is created, and a block is a record on its board,
- * numbered from 1, moved only by its owner. Blocks are called `tokenId` in this API — they were
- * tokens once — and a board's own token is `boardToken`, so the two never share a name.
+ * pictures in them. **The board is an NFT and a collection** (spec §13, 2026-10-21): each board is
+ * one token in the Boards collection, minted to its seller when it is created, and the board's own
+ * contract is an ERC-721 whose tokens are its blocks, numbered from 1 — minted at the buy,
+ * approvable, tradable anywhere. A block is `tokenId` in this API and a board's own token is
+ * `boardToken`, so the two never share a name.
  *
- * **Deployed on Robinhood Chain (4663) and its testnet (46630).** `imageBoardDeploymentFor` throws
- * for any other chain rather than answering with another chain's addresses.
+ * **Metadata is built on chain** by the board's renderer: `readBlockTokenURI`, `readBoardURI`,
+ * `readBoardContractURI`. Pictures are addressed by their hash on IPFS (`contentHashToCid`), the
+ * source by its own CID (`sourceCidOf`).
+ *
+ * **This generation is not deployed yet.** `IMAGE_BOARD_DEPLOYMENTS` is empty until it is;
+ * `imageBoardDeploymentFor` throws for any chain without one rather than answering with addresses
+ * whose ABI is not this one.
  *
  * Builders return a `CallRequest` and never send; nothing here holds a wallet. Reads take the
  * client as an argument and are plain `readContract` calls, so a client with `batch.multicall`
@@ -24,18 +30,23 @@
  * The twin needs the board's cell map (`readCellMap`) and its blocks to price that; `gridStateOf`
  * puts them together.
  */
-import { encodeAbiParameters, toFunctionSelector, type Abi, type Address, type Hex, type PublicClient } from 'viem';
+import { encodeAbiParameters, hexToBytes, toFunctionSelector, type Abi, type Address, type Hex, type PublicClient } from 'viem';
 
 import imageBoardAbiJson from './abi/ImageBoard.json';
 import imageBoardCollectionAbiJson from './abi/ImageBoardCollection.json';
+import imageBoardRendererAbiJson from './abi/ImageBoardRenderer.json';
+import { cidBytesToString } from './content';
 import { cellMapFromBlocks, cellMapOf, gridOf, layoutProblem, termsError, type BlockErrorName, type CellMap, type GridState, type Rect, type TakeTerms, type Zone } from './image-grid';
 import { accruedOf, rentCost, rentSplit } from './rentals';
 import type { CallRequest } from './writes';
 
 export * from './image-grid';
+export * from './image-compose';
+export { contentHashToCid, cidBytesToString, cidStringToBytes } from './content';
 
 export const IMAGE_BOARD_ABI = imageBoardAbiJson as Abi;
 export const IMAGE_BOARD_COLLECTION_ABI = imageBoardCollectionAbiJson as Abi;
+export const IMAGE_BOARD_RENDERER_ABI = imageBoardRendererAbiJson as Abi;
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const ZERO_HASH = `0x${'0'.repeat(64)}`;
@@ -48,9 +59,13 @@ export interface ImageBoardDeployment {
   chainId: number;
   /** Every board is an EIP-1167 clone of this. */
   implementation: Address;
+  /** What every board of `implementation` delegatecalls for its set-up and rentals. */
+  extension: Address;
+  /** What builds every board's metadata; fixed for every board of `implementation`. */
+  renderer: Address;
   /**
-   * `ImageBoardCollection`: `createBoardFor`, and the ERC-721 in which every board is one token. Its
-   * owner can only change which tokens NEW boards may use and where token metadata is fetched from.
+   * The Boards collection: `createBoardFor`, and the ERC-721 in which every board is one token. Its
+   * owner can only change which tokens NEW boards may use and which implementation they are cloned from.
    */
   collection: Address;
   /** The one settlement token the collection allows. Identity is the address, never the symbol. */
@@ -63,39 +78,51 @@ export interface ImageBoardDeployment {
 }
 
 /**
- * Robinhood Chain Testnet, deployed by `scripts/deploy-image-boards.ts`: the renting generation
- * (2026-10-20) — the same bytecode as mainnet's.
- * Its collection takes its name and symbol from its deployer (read them with `name()` and
- * `symbol()`). Its token is a `TestUSD` with EIP-2612 `permit` — not `ROBINHOOD_TESTNET_TUSD`,
- * which page boards settle in and which has none. Verified on Blockscout.
+ * Robinhood Chain testnet, deployed 2026-10-21 by `scripts/deploy-image-boards.ts`: the token
+ * generation (spec §13) — the Boards collection "PageMarkets Images" (`PMIMG`), every board an ERC-721
+ * of its blocks, metadata built on chain by the renderer (thumbnails at
+ * `https://pagemarkets.com/i/boards/`, the live view the pinned reference renderer page). The
+ * collection is owned by the testnet deployer; the token is a mintable TestUSD with EIP-2612 permit.
+ * All four verified on Sourcify, creation and runtime an exact match.
  */
 export const ROBINHOOD_TESTNET_IMAGE_BOARDS: ImageBoardDeployment = {
   chainId: 46630,
-  implementation: '0xa6cfa3e406ff0d2e97fc6026ebc35a9c3e1d63f0',
-  collection: '0x2032e20f12d4c9e086ba497ad01da80d9e2f8f41',
-  token: '0x20f5aa5b5a49571925ede3fc206347963ddba783',
+  implementation: '0x5841eb8d22b7a2b7b04c3e4a22de06e98e9743eb',
+  extension: '0xe18433468ea18e511516e676888880ab900f7c5d',
+  renderer: '0x97265326cc4c568a08d7551e1b7afdd66d82643b',
+  collection: '0xf9bbc1705551078bcfe61810119550331c34d0ac',
+  token: '0xc87e23a0fc112a44acd392b7d5a1f296d60f1f6d',
   decimals: 6,
   mintable: true,
   explorer: 'https://explorer.testnet.chain.robinhood.com',
 };
 
 /**
- * Robinhood Chain, deployed 2026-10-21 by `scripts/deploy-image-boards.ts`: the renting generation
- * (spec §12), with zones, kept squares, resale, several areas, lowered prices and takeovers. The
- * collection is owned by the protocol's deployer; its token is real USDG
- * (`ROBINHOOD_MAINNET_USDG`). Verified on Sourcify, creation and runtime an exact match.
+ * Robinhood Chain, deployed 2026-10-22 by `scripts/deploy-image-boards.ts`: the token generation, as
+ * on testnet, settling in real USDG (`ROBINHOOD_MAINNET_USDG`). The collection is owned by the
+ * protocol's deployer. All four verified on Sourcify (creation and runtime an exact match) and on
+ * Etherscan.
+ *
+ * The first collection deployed over this implementation (`0x3a29…fc37`) carries collection metadata
+ * that is not JSON, fixed for good; it allows no token, holds no board, and is not listed.
  */
 export const ROBINHOOD_MAINNET_IMAGE_BOARDS: ImageBoardDeployment = {
   chainId: 4663,
-  implementation: '0x371280eb4c72409ac3bb73da46573b03e04852da',
-  collection: '0x8af06f713bd23c270adbfae2de735c1fd4abf275',
+  implementation: '0x4d56d3fffc8929ab6806009a2c891f9667ef78f3',
+  extension: '0xaad974c926cf70bd1dcc3a9fdaccd1b22e0de6db',
+  renderer: '0xc21fc880209ade51f4f90d2fd60696f7d0cba95a',
+  collection: '0xce66db2d54420cf29bdf1d5c252c3b6a2b730892',
   token: '0x5fc5360d0400a0fd4f2af552add042d716f1d168',
   decimals: 6,
   mintable: false,
   explorer: 'https://robinhoodchain.blockscout.com',
 };
 
-/** Image boards, by chain. */
+/**
+ * Image boards, by chain. The earlier generation's addresses (testnet `0x2032…8f41`, mainnet
+ * `0x8af0…f275`, both empty of boards) answer a different ABI, so they are not listed; the mainnet
+ * one allows no token.
+ */
 export const IMAGE_BOARD_DEPLOYMENTS: Readonly<Record<number, ImageBoardDeployment>> = {
   [ROBINHOOD_MAINNET_IMAGE_BOARDS.chainId]: ROBINHOOD_MAINNET_IMAGE_BOARDS,
   [ROBINHOOD_TESTNET_IMAGE_BOARDS.chainId]: ROBINHOOD_TESTNET_IMAGE_BOARDS,
@@ -121,7 +148,8 @@ export function imageBoardDeploymentFor(chainId: number): ImageBoardDeployment {
 
 /** The protocol's cut of every square sold and every block resold. The deploy script refuses any other. */
 export const IMAGE_BOARD_PROTOCOL_BPS = 500n;
-/** ERC-2981, paid to a board's creator when the board's NFT is resold: `ImageBoardCollection.ROYALTY_BPS`. */
+/** ERC-2981, paid to a board's creator when the board's NFT is resold: `ImageBoardCollection.ROYALTY_BPS`. A block's
+ *  own ERC-2981 is `IMAGE_BLOCK_RESALE_ROYALTY_BPS`, to whoever holds the board's NFT then. */
 export const IMAGE_BOARD_ROYALTY_BPS = 500n;
 /** What whoever holds the board is credited per square sold, in bps of its price. */
 export const IMAGE_BOARD_SELLER_BPS = 10_000n - IMAGE_BOARD_PROTOCOL_BPS;
@@ -170,13 +198,19 @@ export interface ImageBoardState {
   /** What share of the creation prices an unsold square costs now: 10,000 until the board's holder
    *  lowers it, and it only ever falls. Not frozen. */
   priceBps: number;
+  /** `sha256` of the source image's bytes: what a fetched source is checked against. */
   imageHash: Hex;
-  /** Block numbers run 1..blockCount. Kept blocks, the creator's, are the first ones. */
+  /** The source image's IPFS address, as binary CID bytes (`sourceCidOf` writes it as a string). */
+  sourceCid: Hex;
+  /** The board's name (1–100 bytes) and description (may be empty), the creator's, frozen. */
+  name: string;
+  description: string;
+  /** Changes to the drawn board so far: the board token's thumbnail address carries it (`?v=`). */
+  changes: number;
+  /** Block numbers run 1..blockCount. */
   blockCount: number;
-  /** Who the board was created for, and owns its kept blocks. Never moves; the board's NFT does. */
+  /** Who the board was created for: its token's royalty goes to them. Never moves; the board's NFT does. */
   creator: Address;
-  /** Kept blocks are 1..keptCount. They cannot be taken while `creator` owns them. */
-  keptCount: number;
   /** How a sold cell is taken, chosen by the creator. Frozen. */
   terms: TakeTerms;
   /** Cells no block holds. */
@@ -195,7 +229,7 @@ export interface BlockState extends Rect {
   listPrice: bigint;
   /** What it cost over the creation price of its cells, in bps, rounded up: what a take of it is priced from. */
   level: bigint;
-  /** When it was bought (or kept), in seconds. A resale or a gift does not move it. */
+  /** When it was bought, in seconds. A resale or a gift does not move it. */
   boughtAt: bigint;
   /** How many of its cells no later block has taken. Its rectangle never changes; this does. */
   cellsLeft: number;
@@ -219,6 +253,8 @@ export interface BlockRental {
   prepaid: bigint;
   claimed: bigint;
   tenantHash: Hex;
+  /** Set once `poke` has announced this term's end; cleared when a new term starts. */
+  poked: boolean;
 }
 
 export interface BlockRentListing {
@@ -258,10 +294,13 @@ export async function readImageBoard(client: PublicClient, board: Address, opts:
     cellPrice,
     zones,
     imageHash,
+    sourceCid,
+    name,
+    description,
+    changes,
     blockCount,
     priceBps,
     creator,
-    keptCount,
     takeBps,
     payoutBps,
     reversionBps,
@@ -281,10 +320,13 @@ export async function readImageBoard(client: PublicClient, board: Address, opts:
       read<bigint>('cellPrice'),
       read<readonly { col: number; row: number; cols: number; rows: number; cellPrice: bigint }[]>('zones'),
       read<Hex>('imageHash'),
+      read<Hex>('sourceCid'),
+      read<string>('name'),
+      read<string>('description'),
+      read<bigint>('changes'),
       read<bigint>('blockCount'),
       read<bigint>('priceBps'),
       read<Address>('creator'),
-      read<number>('keptCount'),
       read<number>('takeBps'),
       read<number>('payoutBps'),
       read<number>('reversionBps'),
@@ -306,10 +348,13 @@ export async function readImageBoard(client: PublicClient, board: Address, opts:
     cellPrice,
     zones: zones.map((z) => ({ col: z.col, row: z.row, cols: z.cols, rows: z.rows, cellPrice: z.cellPrice })),
     imageHash,
+    sourceCid,
+    name,
+    description,
+    changes: Number(changes),
     blockCount: Number(blockCount),
     priceBps: Number(priceBps),
     creator,
-    keptCount: Number(keptCount),
     terms: {
       takeBps: Number(takeBps),
       payoutBps: Number(payoutBps),
@@ -321,8 +366,8 @@ export async function readImageBoard(client: PublicClient, board: Address, opts:
   };
 }
 
-/** One block, its holder and its content. Its shape is all zero, and its owner zero, for a number
- *  never sold. */
+/** One SOLD block, its holder and its content: `ownerOf` reverts for a number never sold (ERC-721),
+ *  so this does too. `readBlocks` asks only 1..blockCount. */
 export async function readBlock(client: PublicClient, board: Address, tokenId: bigint, opts: ReadAt = {}): Promise<BlockState> {
   const read = reader(client, board, opts);
   const [shape, owner, editor, listPrice, shownHash, rental, offer] = await Promise.all([
@@ -334,7 +379,7 @@ export async function readBlock(client: PublicClient, board: Address, tokenId: b
     read<Address>('editorOf', [tokenId]),
     read<bigint>('listPrice', [tokenId]),
     read<Hex>('shownHash', [tokenId]),
-    read<{ tenant: Address; start: number; expiry: number; prepaid: bigint; claimed: bigint; tenantHash: Hex }>('rentalOf', [tokenId]),
+    read<{ tenant: Address; start: number; expiry: number; poked: boolean; prepaid: bigint; claimed: bigint; tenantHash: Hex }>('rentalOf', [tokenId]),
     read<readonly [bigint, bigint]>('rentListing', [tokenId]),
   ]);
   return {
@@ -359,15 +404,52 @@ export async function readBlock(client: PublicClient, board: Address, tokenId: b
       prepaid: rental.prepaid,
       claimed: rental.claimed,
       tenantHash: rental.tenantHash,
+      poked: rental.poked,
     },
     rentListing: { ratePerDay: offer[0], maxDurationSecs: BigInt(offer[1]) },
   };
+}
+
+/**
+ * `readBlock`, or null for a number never sold — which `ownerOf` refuses with `NoSuchBlock` (ERC-721,
+ * spec §13.4), where the earlier generation answered zero. Only that refusal is null: an RPC failure
+ * still throws, so a node that is down never reads as "no such block".
+ */
+export async function readSoldBlock(client: PublicClient, board: Address, tokenId: bigint, opts: ReadAt = {}): Promise<BlockState | null> {
+  try {
+    return await readBlock(client, board, tokenId, opts);
+  } catch (error) {
+    if (isNoSuchBlock(error)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Whether `error` is the board's `NoSuchBlock` revert, however deep viem wrapped it. Walked by `cause`
+ * and `name`, never `instanceof`: a caller's viem is often another copy than this package's (the
+ * platform's is), and a class from one copy is not an instance of the other's.
+ */
+export function isNoSuchBlock(error: unknown): boolean {
+  for (let e: unknown = error, depth = 0; e && typeof e === 'object' && depth < 10; e = (e as { cause?: unknown }).cause, depth++) {
+    const named = e as { name?: unknown; data?: { errorName?: unknown } };
+    if (named.name === 'ContractFunctionRevertedError') return named.data?.errorName === 'NoSuchBlock';
+  }
+  return false;
 }
 
 /** Where a block is, alone: one read, for a caller that needs nothing else about it. A block never moves. */
 export async function readBlockRect(client: PublicClient, board: Address, tokenId: bigint): Promise<Rect> {
   const shape = await reader(client, board)<{ col: number; row: number; cols: number; rows: number }>('blockOf', [tokenId]);
   return { col: shape.col, row: shape.row, cols: shape.cols, rows: shape.rows };
+}
+
+/**
+ * Which implementation the Boards collection clones NEW boards from: its owner can change it
+ * (`setImplementation`). A creator asks this before creating, and refuses one it does not expect
+ * (decision 11): a board's rules are its implementation's, for good.
+ */
+export function readCollectionImplementation(client: PublicClient, collection: Address): Promise<Address> {
+  return client.readContract({ address: collection, abi: IMAGE_BOARD_COLLECTION_ABI, functionName: 'implementation' } as never) as Promise<Address>;
 }
 
 /** Every block, its holder and its content, in one batch — `blockCount` from `readImageBoard`. */
@@ -381,7 +463,7 @@ export function readBlocks(client: PublicClient, board: Address, blockCount: num
  */
 const BLOCK_ERRORS: ReadonlyMap<string, BlockErrorName> = new Map([
   ['0x00000000', 'none'],
-  ...(['EmptyBlock', 'OutsideGrid', 'CellsTaken', 'CellsKept', 'CoolingDown', 'TooLarge', 'TooManyBlocks'] as const).map(
+  ...(['EmptyBlock', 'OutsideGrid', 'CellsTaken', 'CoolingDown', 'TooLarge', 'TooManyBlocks'] as const).map(
     (name): [string, BlockErrorName] => {
       if (!IMAGE_BOARD_ABI.some((item) => item.type === 'error' && item.name === name)) {
         throw new Error(`ImageBoard ABI has no error ${name}`);
@@ -443,8 +525,6 @@ export function gridStateOf(board: ImageBoardState, blocks: readonly BlockState[
     zones: board.zones,
     priceBps: board.priceBps,
     terms: board.terms,
-    creator: board.creator,
-    keptCount: board.keptCount,
     cells: cells ?? cellMapFromBlocks(grid, blocks),
     blocks: new Map(blocks.map((b) => [Number(b.tokenId), { owner: b.owner, level: b.level, boughtAt: b.boughtAt }])),
   };
@@ -471,8 +551,59 @@ export async function readBlockCount(client: PublicClient, board: Address, opts:
   return Number(await reader(client, board, opts)<bigint>('blockCount'));
 }
 
+/** Reverts for a block never sold (ERC-721). */
 export function readOwnerOf(client: PublicClient, board: Address, tokenId: bigint): Promise<Address> {
   return reader(client, board)<Address>('ownerOf', [tokenId]);
+}
+
+/** How many of this board's blocks `owner` holds. */
+export async function readBlockBalance(client: PublicClient, board: Address, owner: Address): Promise<number> {
+  return Number(await reader(client, board)<bigint>('balanceOf', [owner]));
+}
+
+/** Who may move this one block besides its owner; zero for nobody. Ends with every change of owner. */
+export function readBlockApproved(client: PublicClient, board: Address, tokenId: bigint): Promise<Address> {
+  return reader(client, board)<Address>('getApproved', [tokenId]);
+}
+
+/** Whether `operator` may move every block `owner` holds on this board. */
+export function readIsBlockOperator(client: PublicClient, board: Address, owner: Address, operator: Address): Promise<boolean> {
+  return reader(client, board)<boolean>('isApprovedForAll', [owner, operator]);
+}
+
+/** ERC-5646: changes with a take, a picture, a term or a listing — an order that names it cannot fill after. */
+export function readBlockFingerprint(client: PublicClient, board: Address, tokenId: bigint): Promise<Hex> {
+  return reader(client, board)<Hex>('getStateFingerprint', [tokenId]);
+}
+
+/** A block's ERC-721 metadata, built on chain: `data:application/json;base64,…`. Reverts for one never sold. */
+export function readBlockTokenURI(client: PublicClient, board: Address, tokenId: bigint): Promise<string> {
+  return reader(client, board)<string>('tokenURI', [tokenId]);
+}
+
+/** The board token's metadata (what the Boards collection's `tokenURI` returns for it). */
+export function readBoardURI(client: PublicClient, board: Address): Promise<string> {
+  return reader(client, board)<string>('boardURI');
+}
+
+/** ERC-7572: the board's own collection — its name and the original picture. */
+export function readBoardContractURI(client: PublicClient, board: Address): Promise<string> {
+  return reader(client, board)<string>('contractURI');
+}
+
+/**
+ * What taking every square the block still holds would cost now, in the token's smallest units —
+ * the figure its metadata shows, and what a buy pays for that part. A reading: it falls weekly with
+ * no transaction. Asked of the board's own renderer.
+ */
+export async function readTakePrice(client: PublicClient, board: Address, tokenId: bigint): Promise<bigint> {
+  const renderer = await reader(client, board)<Address>('renderer');
+  return client.readContract({ address: renderer, abi: IMAGE_BOARD_RENDERER_ABI, functionName: 'takePrice', args: [board, tokenId] } as never) as Promise<bigint>;
+}
+
+/** The board's source image's IPFS address, as a string (`b…`), from `sourceCid`. */
+export function sourceCidOf(board: Pick<ImageBoardState, 'sourceCid'>): string {
+  return cidBytesToString(board.sourceCid);
 }
 
 export function readCanEdit(client: PublicClient, board: Address, tokenId: bigint, account: Address): Promise<boolean> {
@@ -513,21 +644,37 @@ export interface CreateImageBoardOptions {
   height: number;
   cellSize: number;
   cellPrice: bigint;
-  /** Hash of the original image bytes. */
+  /** `sha256` of the source image's bytes. */
   imageHash: Hex;
+  /** The source's IPFS address as binary CIDv1 bytes (at most 64): its pinned copy's, not its hash. */
+  sourceCid: Hex;
+  /** The board's name, 1–100 bytes of UTF-8. The creator's; the protocol does not police it. */
+  name: string;
+  /** Up to 1,000 bytes; `''` for none. Required, so a caller says so. */
+  description: string;
   /** Required, `[]` for one price everywhere: a default is how a caller forgets the seller's zones. */
   zones: readonly Zone[];
-  /** Required, `[]` for none: blocks the seller keeps, made with the board as theirs. */
-  kept: readonly Rect[];
   /** How a sold cell is taken. Required, with no default: the creator chooses, as a page board's publisher does. */
   terms: TakeTerms;
+}
+
+/** What `initialize` accepts of a board's name and description, in UTF-8 bytes (spec §13.3). */
+export const IMAGE_BOARD_MAX_NAME_BYTES = 100;
+export const IMAGE_BOARD_MAX_DESCRIPTION_BYTES = 1_000;
+
+/** Which of the two `initialize` would refuse, or null: counted in bytes, as the contract counts. */
+export function imageBoardTextProblem(name: string, description: string): 'name' | 'description' | null {
+  const bytes = (text: string) => new TextEncoder().encode(text).length;
+  if (bytes(name) === 0 || bytes(name) > IMAGE_BOARD_MAX_NAME_BYTES) return 'name';
+  if (bytes(description) > IMAGE_BOARD_MAX_DESCRIPTION_BYTES) return 'description';
+  return null;
 }
 
 /**
  * `ImageBoard.Config`, as `initialize` decodes it. Since 2026-10-20 the collection passes a board's
  * set-up through as bytes it never reads — so a later implementation may take another shape — and
  * the struct is no longer in any ABI. Written out here, and pinned by creating boards with zones,
- * kept blocks and terms on real bytecode (the platform's anvil suite and the deploy's smoke).
+ * names and terms on real bytecode (the platform's anvil suite and the deploy's smoke).
  */
 export const IMAGE_BOARD_CONFIG_PARAMS = [
   {
@@ -539,6 +686,9 @@ export const IMAGE_BOARD_CONFIG_PARAMS = [
       { name: 'cellSize', type: 'uint8' },
       { name: 'cellPrice', type: 'uint256' },
       { name: 'imageHash', type: 'bytes32' },
+      { name: 'sourceCid', type: 'bytes' },
+      { name: 'name', type: 'string' },
+      { name: 'description', type: 'string' },
       {
         name: 'zones',
         type: 'tuple[]',
@@ -548,16 +698,6 @@ export const IMAGE_BOARD_CONFIG_PARAMS = [
           { name: 'cols', type: 'uint16' },
           { name: 'rows', type: 'uint16' },
           { name: 'cellPrice', type: 'uint192' },
-        ],
-      },
-      {
-        name: 'kept',
-        type: 'tuple[]',
-        components: [
-          { name: 'col', type: 'uint16' },
-          { name: 'row', type: 'uint16' },
-          { name: 'cols', type: 'uint16' },
-          { name: 'rows', type: 'uint16' },
         ],
       },
       {
@@ -588,7 +728,10 @@ export function buildCreateImageBoard(o: CreateImageBoardOptions): CallRequest<'
   if (o.cellPrice <= 0n) throw new Error('image board: the cell price must be above zero');
   if (o.imageHash.toLowerCase() === ZERO_HASH) throw new Error('image board: the image hash is required');
   const grid = gridOf(o.width, o.height, o.cellSize) as { cols: number; rows: number };
-  const layout = layoutProblem(grid, o.zones, o.kept);
+  if (imageBoardTextProblem(o.name, o.description)) throw new Error('image board: a name is 1 to 100 bytes, a description at most 1,000');
+  const cid = hexToBytes(o.sourceCid);
+  if (cid.length === 0 || cid.length > 64 || cid[0] !== 0x01) throw new Error('image board: the source CID must be a binary CIDv1 of at most 64 bytes');
+  const layout = layoutProblem(grid, o.zones);
   if (layout) throw new Error(`image board: ${layout.problem} at ${layout.index}`);
   // The contract stores a zone's price in 192 bits; a larger one would not encode.
   if (o.zones.some((z) => z.cellPrice >= 1n << 192n)) throw new Error('image board: a zone price is out of range');
@@ -612,8 +755,10 @@ export function buildCreateImageBoard(o: CreateImageBoardOptions): CallRequest<'
           cellSize: o.cellSize,
           cellPrice: o.cellPrice,
           imageHash: o.imageHash,
+          sourceCid: o.sourceCid,
+          name: o.name,
+          description: o.description,
           zones: o.zones.map((z) => ({ col: z.col, row: z.row, cols: z.cols, rows: z.rows, cellPrice: z.cellPrice })),
-          kept: o.kept.map((k) => ({ col: k.col, row: k.row, cols: k.cols, rows: k.rows })),
           terms: {
             takeBps: BigInt(o.terms.takeBps),
             payoutBps: BigInt(o.terms.payoutBps),
@@ -816,13 +961,39 @@ export function buildSetBlockEditorWithSig(o: {
 }
 
 /**
- * Gives a block to `to` — the holder's own transaction, and the only way a block moves.
- * A block is not a token, so there is no receiver check: an address that cannot use it still holds
- * it, as one that never signs in does.
+ * ERC-721 `transferFrom`: moves a block from `from` to `to`, sent by `from`, an address approved for
+ * this block, or an operator `from` approved. No receiver check — an address that cannot use a block
+ * still holds it; a marketplace moves blocks the same way. Settles the term's streamed rent to `from`
+ * and ends their listing, rent offer, editor grant and approval; the tenancy carries on.
  */
-export function buildTransferBlock(o: { board: Address; to: Address; tokenId: bigint }): CallRequest<'transferBlock', [bigint, Address]> {
+export function buildTransferBlock(o: { board: Address; from: Address; to: Address; tokenId: bigint }): CallRequest<'transferFrom', [Address, Address, bigint]> {
+  if (o.from === ZERO_ADDRESS) throw new Error('image board: name who the block is moved from');
   if (o.to === ZERO_ADDRESS) throw new Error('image board: a block must be given to someone');
-  return { address: o.board, abi: IMAGE_BOARD_ABI, functionName: 'transferBlock', args: [o.tokenId, o.to] };
+  return { address: o.board, abi: IMAGE_BOARD_ABI, functionName: 'transferFrom', args: [o.from, o.to, o.tokenId] };
+}
+
+/** `approve`: `spender` may move this one block (only move it), until it changes hands. Zero clears it. */
+export function buildApproveBlock(o: { board: Address; spender: Address; tokenId: bigint }): CallRequest<'approve', [Address, bigint]> {
+  return { address: o.board, abi: IMAGE_BOARD_ABI, functionName: 'approve', args: [o.spender, o.tokenId] };
+}
+
+/** `setApprovalForAll`: `operator` may move every block the sender holds on this board (a marketplace's ask). */
+export function buildSetBlockOperator(o: { board: Address; operator: Address; approved: boolean }): CallRequest<'setApprovalForAll', [Address, boolean]> {
+  return { address: o.board, abi: IMAGE_BOARD_ABI, functionName: 'setApprovalForAll', args: [o.operator, o.approved] };
+}
+
+/**
+ * `poke`: anyone announces (ERC-4906) that a term which lapsed with the tenant's picture showing has
+ * changed the board back. Once per term, after it ends. A term ends with no transaction, so without
+ * this a marketplace keeps the tenant's picture until it refreshes on its own.
+ */
+export function buildPokeBlock(o: { board: Address; tokenId: bigint }): CallRequest<'poke', [bigint]> {
+  return { address: o.board, abi: IMAGE_BOARD_ABI, functionName: 'poke', args: [o.tokenId] };
+}
+
+/** Whether `poke` would go through at `now` (the chain's time): a lapsed term, a tenant picture, not yet poked. */
+export function pokeDue(rental: Pick<BlockRental, 'expiry' | 'tenantHash' | 'poked'>, now: bigint): boolean {
+  return rental.expiry !== 0n && now >= rental.expiry && rental.tenantHash.toLowerCase() !== ZERO_HASH && !rental.poked;
 }
 
 /** Pays `account` what the board owes it. Permissionless, and pays only `account`, so anyone may send it. */

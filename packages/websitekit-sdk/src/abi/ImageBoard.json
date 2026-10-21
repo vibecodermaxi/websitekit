@@ -3,12 +3,12 @@
     "type": "constructor",
     "inputs": [
       {
-        "name": "protocolBps_",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "extension_",
+        "type": "address",
+        "internalType": "address"
       },
       {
-        "name": "protocolTreasury_",
+        "name": "renderer_",
         "type": "address",
         "internalType": "address"
       }
@@ -147,6 +147,43 @@
   },
   {
     "type": "function",
+    "name": "approve",
+    "inputs": [
+      {
+        "name": "spender",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "balanceOf",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "blockCount",
     "inputs": [],
     "outputs": [
@@ -172,7 +209,7 @@
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ImageBoard.Block",
+        "internalType": "struct ImageBoardStorage.Block",
         "components": [
           {
             "name": "col",
@@ -239,6 +276,19 @@
   },
   {
     "type": "function",
+    "name": "boardURI",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "buyBlocks",
     "inputs": [
       {
@@ -249,7 +299,7 @@
       {
         "name": "rects",
         "type": "tuple[]",
-        "internalType": "struct ImageBoard.Rect[]",
+        "internalType": "struct ImageBoardStorage.Rect[]",
         "components": [
           {
             "name": "col",
@@ -305,7 +355,7 @@
       {
         "name": "rects",
         "type": "tuple[]",
-        "internalType": "struct ImageBoard.Rect[]",
+        "internalType": "struct ImageBoardStorage.Rect[]",
         "components": [
           {
             "name": "col",
@@ -371,7 +421,7 @@
       {
         "name": "rects",
         "type": "tuple[]",
-        "internalType": "struct ImageBoard.Rect[]",
+        "internalType": "struct ImageBoardStorage.Rect[]",
         "components": [
           {
             "name": "col",
@@ -542,10 +592,23 @@
   },
   {
     "type": "function",
+    "name": "changes",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "claimRent",
     "inputs": [
       {
-        "name": "blockIds",
+        "name": "",
         "type": "uint256[]",
         "internalType": "uint256[]"
       }
@@ -562,6 +625,19 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "contractURI",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
       }
     ],
     "stateMutability": "view"
@@ -607,6 +683,19 @@
   },
   {
     "type": "function",
+    "name": "description",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "edit",
     "inputs": [
       {
@@ -628,12 +717,12 @@
     "name": "editRented",
     "inputs": [
       {
-        "name": "blockId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "contentHash",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
       }
@@ -684,17 +773,17 @@
     "name": "extendRental",
     "inputs": [
       {
-        "name": "blockId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "durationSecs",
+        "name": "",
         "type": "uint64",
         "internalType": "uint64"
       },
       {
-        "name": "expectedRatePerDay",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -707,43 +796,56 @@
     "name": "extendRentalWithPermit",
     "inputs": [
       {
-        "name": "blockId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "durationSecs",
+        "name": "",
         "type": "uint64",
         "internalType": "uint64"
       },
       {
-        "name": "expectedRatePerDay",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "permitDeadline",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "v",
+        "name": "",
         "type": "uint8",
         "internalType": "uint8"
       },
       {
-        "name": "r",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
       },
       {
-        "name": "s",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
       }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "extension",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -754,6 +856,44 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getApproved",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getStateFingerprint",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -815,17 +955,17 @@
     "name": "initialize",
     "inputs": [
       {
-        "name": "boardTokenId_",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "creator_",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "config",
+        "name": "",
         "type": "bytes",
         "internalType": "bytes"
       }
@@ -835,13 +975,24 @@
   },
   {
     "type": "function",
-    "name": "keptCount",
-    "inputs": [],
+    "name": "isApprovedForAll",
+    "inputs": [
+      {
+        "name": "owner_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "outputs": [
       {
         "name": "",
-        "type": "uint32",
-        "internalType": "uint32"
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -869,17 +1020,17 @@
     "name": "listForRent",
     "inputs": [
       {
-        "name": "blockId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "ratePerDay",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "maxDurationSecs",
+        "name": "",
         "type": "uint64",
         "internalType": "uint64"
       }
@@ -934,6 +1085,32 @@
   },
   {
     "type": "function",
+    "name": "name",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "ownerOf",
     "inputs": [
       {
@@ -944,7 +1121,7 @@
     ],
     "outputs": [
       {
-        "name": "",
+        "name": "owner_",
         "type": "address",
         "internalType": "address"
       }
@@ -982,6 +1159,19 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "poke",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1029,7 +1219,7 @@
       {
         "name": "rects",
         "type": "tuple[]",
-        "internalType": "struct ImageBoard.Rect[]",
+        "internalType": "struct ImageBoardStorage.Rect[]",
         "components": [
           {
             "name": "col",
@@ -1065,25 +1255,38 @@
   },
   {
     "type": "function",
+    "name": "renderer",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "rent",
     "inputs": [
       {
-        "name": "blockId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "tenant",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "durationSecs",
+        "name": "",
         "type": "uint64",
         "internalType": "uint64"
       },
       {
-        "name": "expectedRatePerDay",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1120,42 +1323,42 @@
     "name": "rentWithPermit",
     "inputs": [
       {
-        "name": "blockId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "tenant",
+        "name": "",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "durationSecs",
+        "name": "",
         "type": "uint64",
         "internalType": "uint64"
       },
       {
-        "name": "expectedRatePerDay",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "permitDeadline",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "v",
+        "name": "",
         "type": "uint8",
         "internalType": "uint8"
       },
       {
-        "name": "r",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
       },
       {
-        "name": "s",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
       }
@@ -1177,7 +1380,7 @@
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ImageBoard.Rental",
+        "internalType": "struct ImageBoardStorage.Rental",
         "components": [
           {
             "name": "tenant",
@@ -1193,6 +1396,11 @@
             "name": "expiry",
             "type": "uint40",
             "internalType": "uint40"
+          },
+          {
+            "name": "poked",
+            "type": "bool",
+            "internalType": "bool"
           },
           {
             "name": "prepaid",
@@ -1258,6 +1466,86 @@
   },
   {
     "type": "function",
+    "name": "royaltyInfo",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "salePrice",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "safeTransferFrom",
+    "inputs": [
+      {
+        "name": "from",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "safeTransferFrom",
+    "inputs": [
+      {
+        "name": "from",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "seller",
     "inputs": [],
     "outputs": [
@@ -1268,6 +1556,24 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setApprovalForAll",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "approved",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1317,6 +1623,29 @@
   },
   {
     "type": "function",
+    "name": "setUser",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "settlementToken",
     "inputs": [],
     "outputs": [
@@ -1349,6 +1678,51 @@
   },
   {
     "type": "function",
+    "name": "sourceCid",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "supportsInterface",
+    "inputs": [
+      {
+        "name": "interfaceId",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "symbol",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "takeBps",
     "inputs": [],
     "outputs": [
@@ -1362,21 +1736,83 @@
   },
   {
     "type": "function",
-    "name": "transferBlock",
+    "name": "tokenURI",
     "inputs": [
       {
         "name": "blockId",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "transferFrom",
+    "inputs": [
+      {
+        "name": "from",
+        "type": "address",
+        "internalType": "address"
       },
       {
         "name": "to",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "userExpires",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "userOf",
+    "inputs": [
+      {
+        "name": "blockId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1412,7 +1848,7 @@
       {
         "name": "",
         "type": "tuple[]",
-        "internalType": "struct ImageBoard.Zone[]",
+        "internalType": "struct ImageBoardStorage.Zone[]",
         "components": [
           {
             "name": "col",
@@ -1443,6 +1879,56 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "Approval",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "approved",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "id",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ApprovalForAll",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "approved",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1557,49 +2043,6 @@
         "type": "uint32",
         "indexed": false,
         "internalType": "uint32"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "BlockKept",
-    "inputs": [
-      {
-        "name": "blockId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "owner",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "col",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
-      },
-      {
-        "name": "row",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
-      },
-      {
-        "name": "cols",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
-      },
-      {
-        "name": "rows",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
       }
     ],
     "anonymous": false
@@ -1723,31 +2166,6 @@
   },
   {
     "type": "event",
-    "name": "BlockTransferred",
-    "inputs": [
-      {
-        "name": "blockId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "from",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "to",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "BoardInitialized",
     "inputs": [
       {
@@ -1847,6 +2265,19 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MetadataUpdate",
+    "inputs": [
+      {
+        "name": "_tokenId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1990,6 +2421,56 @@
   },
   {
     "type": "event",
+    "name": "Transfer",
+    "inputs": [
+      {
+        "name": "from",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "id",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UpdateUser",
+    "inputs": [
+      {
+        "name": "tokenId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "expires",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Withdrawn",
     "inputs": [
       {
@@ -2057,11 +2538,6 @@
   },
   {
     "type": "error",
-    "name": "CellsKept",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "CellsTaken",
     "inputs": []
   },
@@ -2087,22 +2563,22 @@
   },
   {
     "type": "error",
-    "name": "InvalidConfig",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InvalidPrice",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "InvalidReversion",
+    "name": "InvalidSignature",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "InvalidSignature",
+    "name": "NoSuchBlock",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotAuthorized",
     "inputs": []
   },
   {
@@ -2123,6 +2599,11 @@
   {
     "type": "error",
     "name": "NotForRent",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotLapsed",
     "inputs": []
   },
   {
@@ -2148,11 +2629,6 @@
   {
     "type": "error",
     "name": "OutsideGrid",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "PayoutBelowPrincipal",
     "inputs": []
   },
   {
@@ -2214,16 +2690,6 @@
   },
   {
     "type": "error",
-    "name": "TakeBelowPayout",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "TakeTooHigh",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "TermTooLong",
     "inputs": []
   },
@@ -2235,6 +2701,11 @@
   {
     "type": "error",
     "name": "TooManyBlocks",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsafeRecipient",
     "inputs": []
   },
   {

@@ -2,6 +2,8 @@
 pragma solidity 0.8.30;
 
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
+import { ImageBoardExtension } from "../src/ImageBoardExtension.sol";
 import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardCollection } from "../src/ImageBoardCollection.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
@@ -40,7 +42,7 @@ contract ImageBoardResaleTest is ImageBoardBase {
 
     function test_theOwnerListsAndCanChangeThePrice() public {
         vm.expectEmit(address(board));
-        emit ImageBoard.BlockListed(id, bob, PRICE);
+        emit ImageBoardStorage.BlockListed(id, bob, PRICE);
         _list(PRICE);
         assertEq(board.listPrice(id), PRICE);
         _list(PRICE + 1);
@@ -55,7 +57,7 @@ contract ImageBoardResaleTest is ImageBoardBase {
         address[4] memory others = [alice, seller, carol, relayer];
         for (uint256 i = 0; i < others.length; i++) {
             vm.prank(others[i]);
-            vm.expectRevert(ImageBoard.NotBlockOwner.selector);
+            vm.expectRevert(ImageBoardStorage.NotBlockOwner.selector);
             board.listBlock(id, PRICE);
         }
         assertEq(board.listPrice(id), 0);
@@ -63,38 +65,38 @@ contract ImageBoardResaleTest is ImageBoardBase {
 
     function test_anUnsoldBlockCannotBeListed() public {
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotBlockOwner.selector);
+        vm.expectRevert(ImageBoardStorage.NotBlockOwner.selector);
         board.listBlock(id + 1, PRICE);
     }
 
     /// Zero is "not listed", so it cannot be a price.
     function test_aZeroPriceIsRefused() public {
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.InvalidPrice.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidPrice.selector);
         board.listBlock(id, 0);
     }
 
     function test_theOwnerDelists() public {
         _list(PRICE);
         vm.expectEmit(address(board));
-        emit ImageBoard.BlockDelisted(id, bob);
+        emit ImageBoardStorage.BlockDelisted(id, bob);
         vm.prank(bob);
         board.delistBlock(id);
         assertEq(board.listPrice(id), 0);
 
         vm.prank(carol);
-        vm.expectRevert(ImageBoard.NotListed.selector);
+        vm.expectRevert(ImageBoardStorage.NotListed.selector);
         board.buyListedBlock(id, carol, PRICE);
     }
 
     function test_onlyTheOwnerDelistsAndOnlyWhatIsListed() public {
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotListed.selector);
+        vm.expectRevert(ImageBoardStorage.NotListed.selector);
         board.delistBlock(id);
 
         _list(PRICE);
         vm.prank(seller);
-        vm.expectRevert(ImageBoard.NotBlockOwner.selector);
+        vm.expectRevert(ImageBoardStorage.NotBlockOwner.selector);
         board.delistBlock(id);
         assertEq(board.listPrice(id), PRICE);
     }
@@ -119,9 +121,9 @@ contract ImageBoardResaleTest is ImageBoardBase {
         uint256 protocolOwed = board.pendingWithdrawals(protocol);
 
         vm.expectEmit(address(board));
-        emit ImageBoard.BlockTransferred(id, bob, alice);
+        emit ImageBoardStorage.Transfer(bob, alice, id);
         vm.expectEmit(address(board));
-        emit ImageBoard.BlockResold(id, carol, alice, bob, PRICE, cut, royalty, seller);
+        emit ImageBoardStorage.BlockResold(id, carol, alice, bob, PRICE, cut, royalty, seller);
         vm.prank(carol);
         board.buyListedBlock(id, alice, PRICE);
 
@@ -166,28 +168,28 @@ contract ImageBoardResaleTest is ImageBoardBase {
     function test_aBuyAtAPriceThatChangedIsRefused() public {
         _list(PRICE);
         vm.prank(carol);
-        vm.expectRevert(ImageBoard.PriceChanged.selector);
+        vm.expectRevert(ImageBoardStorage.PriceChanged.selector);
         board.buyListedBlock(id, carol, PRICE - 1);
 
         vm.prank(carol);
-        vm.expectRevert(ImageBoard.PriceChanged.selector);
+        vm.expectRevert(ImageBoardStorage.PriceChanged.selector);
         board.buyListedBlock(id, carol, PRICE + 1);
     }
 
     function test_aBlockNotListedCannotBeBought() public {
         vm.prank(carol);
-        vm.expectRevert(ImageBoard.NotListed.selector);
+        vm.expectRevert(ImageBoardStorage.NotListed.selector);
         board.buyListedBlock(id, carol, PRICE);
         // An id never sold has no owner and no listing.
         vm.prank(carol);
-        vm.expectRevert(ImageBoard.NotListed.selector);
+        vm.expectRevert(ImageBoardStorage.NotListed.selector);
         board.buyListedBlock(id + 1, carol, PRICE);
     }
 
     function test_aZeroRecipientIsRefused() public {
         _list(PRICE);
         vm.prank(carol);
-        vm.expectRevert(ImageBoard.ZeroAddress.selector);
+        vm.expectRevert(ImageBoardStorage.ZeroAddress.selector);
         board.buyListedBlock(id, address(0), PRICE);
     }
 
@@ -216,7 +218,7 @@ contract ImageBoardResaleTest is ImageBoardBase {
         assertEq(board.listPrice(id), 0);
 
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.NotListed.selector);
+        vm.expectRevert(ImageBoardStorage.NotListed.selector);
         board.buyListedBlock(id, alice, PRICE);
     }
 
@@ -225,15 +227,15 @@ contract ImageBoardResaleTest is ImageBoardBase {
     function test_aGiftEndsTheListingAndHandingItBackDoesNotReviveIt() public {
         _list(PRICE);
         vm.prank(bob);
-        board.transferBlock(id, carol);
+        board.transferFrom(bob, carol, id);
         assertEq(board.listPrice(id), 0);
 
         vm.prank(carol);
-        board.transferBlock(id, bob);
+        board.transferFrom(carol, bob, id);
         assertEq(board.listPrice(id), 0);
 
         vm.prank(alice);
-        vm.expectRevert(ImageBoard.NotListed.selector);
+        vm.expectRevert(ImageBoardStorage.NotListed.selector);
         board.buyListedBlock(id, alice, PRICE);
     }
 
@@ -265,7 +267,7 @@ contract ImageBoardResaleTest is ImageBoardBase {
     function test_aResaleLeavesTheBlockAndItsPictureAsTheyWere() public {
         vm.prank(bob);
         board.edit(id, keccak256("bob's picture"));
-        ImageBoard.Block memory before = board.blockOf(id);
+        ImageBoardStorage.Block memory before = board.blockOf(id);
         uint256 rowBefore = board.rowBits(3);
         uint256 countBefore = board.blockCount();
 
@@ -273,7 +275,7 @@ contract ImageBoardResaleTest is ImageBoardBase {
         vm.prank(carol);
         board.buyListedBlock(id, carol, PRICE);
 
-        ImageBoard.Block memory afterSale = board.blockOf(id);
+        ImageBoardStorage.Block memory afterSale = board.blockOf(id);
         assertEq(afterSale.contentHash, before.contentHash);
         assertEq(afterSale.version, before.version);
         assertEq(afterSale.col, before.col);
@@ -329,7 +331,7 @@ contract ImageBoardResaleTest is ImageBoardBase {
     /// Every other test runs at a 500 bps protocol cut, which is also the royalty — where a split
     /// that used one rate for both would pass. A 300 bps implementation tells them apart.
     function test_theCutAndTheRoyaltyAreDifferentRates() public {
-        ImageBoard impl = new ImageBoard(300, protocol);
+        ImageBoard impl = _implementation(300, protocol);
         address[] memory tokens = new address[](1);
         tokens[0] = address(usd);
         ImageBoardCollection c = new ImageBoardCollection("Test Image Boards", "TIMG", address(this), address(impl), tokens, "");
@@ -342,8 +344,8 @@ contract ImageBoardResaleTest is ImageBoardBase {
 
     /// The protocol's cut and the royalty come out of one price, so together they cannot exceed it.
     function test_anImplementationWhoseCutLeavesNoRoomForTheRoyaltyIsRefused() public {
-        vm.expectRevert(ImageBoard.InvalidConfig.selector);
-        new ImageBoard(9_501, protocol);
-        new ImageBoard(9_500, protocol);
+        vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);
+        new ImageBoardExtension(9_501, protocol);
+        new ImageBoardExtension(9_500, protocol);
     }
 }

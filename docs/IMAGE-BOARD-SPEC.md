@@ -1,17 +1,27 @@
 # Image boards — contract spec
 
-`ImageBoardCollection.sol` and `ImageBoard.sol`. The second kind of board: one uploaded image, sold
-as rectangles of square cells. **Each board is one ERC-721 token; a block is not a token** (decided
-2026-10-09). `PROTOCOL-SPEC.md` describes the first kind (`SlotSite`, regions of a publisher's own
+`ImageBoardCollection.sol` and `ImageBoard.sol`, with `ImageBoardExtension.sol`,
+`ImageBoardRenderer.sol` and `ImageBoardStorage.sol` (§13.1). The second kind of board: one uploaded
+image, sold as rectangles of square cells. **Each board is one ERC-721 token in the Boards
+collection, and each board is itself an ERC-721 whose tokens are its blocks** (§13, decided
+2026-10-21). `PROTOCOL-SPEC.md` describes the first kind (`SlotSite`, regions of a publisher's own
 page); nothing here changes it, and the two share no code or storage.
 
 **Status: unaudited**, like the rest of the protocol. Outside the frozen core, like the escrow
-contracts. **Deployed on Robinhood Chain mainnet (4663) on 2026-10-21** with everything in §1–§12,
-as on its testnet; the addresses are `imageBoardDeploymentFor` in `@websitekit/sdk/image-boards`. Changes to this document need a recorded reason, as `PROTOCOL-SPEC.md`'s do.
+contracts. **The §13 generation is deployed on Robinhood Chain mainnet (4663) on 2026-10-22, and on
+its testnet (46630) on 2026-10-21**; the addresses are `imageBoardDeploymentFor` in
+`@websitekit/sdk/image-boards`. Changes to this document need a recorded reason, as
+`PROTOCOL-SPEC.md`'s do.
 
-**Why the board and not the block.** A token per block made one board hundreds of marketplace
-listings of unrelated pictures. One token per board is one listing whose picture is the whole board,
-every block's picture in it.
+**How to read it.** §1–§12 were written for the earlier generation, in which a block was a record
+and not a token; §13 amends them and wins wherever they differ. The earlier generation was deployed
+on both chains, holds no boards, and is retired: the SDK does not list it, and its mainnet collection
+allows no token.
+
+**Why the board, then the block** (history). The earlier generation made the board its only token
+because a token per block, in one shared collection, made one board hundreds of marketplace listings
+of unrelated pictures. §13 gives each board a collection of its own, so a board's blocks are listed
+together and apart from every other board's.
 
 ## 1. Shape
 
@@ -259,7 +269,7 @@ purpose, are decided by the model as a whole; the holder (and, to be refused, an
 prices; the model scales each block by its own share, rounding up by a different formula, and the
 board's `priceBps` must equal it after every call.
 
-## 11. Takeovers — added 2026-10-14, deployed on testnet
+## 11. Takeovers — added 2026-10-14
 
 **Recorded reason**: a board had nothing left to sell once its squares were gone, so it stopped
 earning, and the contest that page slots and bots have — anyone may take what someone else holds,
@@ -463,3 +473,199 @@ mutations of the rules, all caught (two after tests were strengthened, one of th
 take left an unrented block's offer standing). The invariant suite models every tenancy, offer and
 shown picture, and measures every party's credit across rentals, extensions, claims, takes, gifts
 and resales; the board holds what it owes plus what is still streaming.
+
+## 13. The token generation — decided 2026-10-21, deployed on both chains
+
+**Recorded reason**: in §1–§12 a block is a record no wallet or marketplace can see, its picture is
+drawn and served by whoever runs the board's metadata host, and the token's metadata is
+`baseURI ++ id` on that host. Trading was already open to anyone who calls the contract, but holding,
+showing and trading a block depended on one operator. This generation makes every block a token
+anyone can see and trade, computes metadata on chain, and addresses every picture by its hash on
+IPFS, so a board and its blocks work with no particular operator.
+
+This reverses §1's *a block is not a token* (decided 2026-10-09) and §7's *there are no approvals*.
+The reason for the first was that a token per block in ONE shared collection put hundreds of
+unrelated pictures into one marketplace listing; here each board is its own collection, so a board's
+blocks are listed together and nothing else is.
+
+### 13.1 Shape
+
+- **The Boards collection** (a new `ImageBoardCollection`): one ERC-721 with a token per board,
+  minted to `seller` at `createBoardFor` as in §1. Name and symbol are constructor arguments, as
+  today. It records each token's board (`boardOf(token)`), and its `tokenURI(token)` returns that
+  board's `boardURI()` (reverting for a token never minted). Its own collection metadata,
+  `contractURI()`, is a constructor argument, fixed at deployment.
+- **A board is a collection**: `ImageBoard` is an ERC-721 whose tokens are its blocks, token id =
+  block id (from 1). It exists from `createBoardFor` but holds no token until its first sale.
+- **The extension** (`ImageBoardExtension`): rentals (§12's entry points) and creation
+  (`initialize`, zones) run as code the board DELEGATECALLs, because the board with this section's
+  surface does not fit EIP-170 alone (measured 2026-10-21: 27,812 B; 20,893 B with these moved).
+  Its address is an immutable of the implementation. Both contracts inherit ONE storage base
+  (`ImageBoardStorage`), so their layouts cannot drift. The board keeps one explicit forwarding
+  function per moved function, so its own ABI is complete. The extension holds no funds of its own:
+  run by delegatecall it pulls rent and credits ledgers in the board's storage. Called directly it
+  touches only its own storage, which holds nothing.
+- **The renderer** (`ImageBoardRenderer`): a view-only contract that builds every metadata string
+  (§13.8). Its address is an immutable of the implementation, so nobody can change how an existing
+  board's metadata reads. Its deploy arguments are `thumbnailBase` and `rendererPage` (§13.8).
+
+### 13.2 Powers
+
+- **Nobody has power over an existing board, its blocks, its money or its metadata.** §2's first
+  point stands, with "by its owner's act" now including an approval its owner gave (§13.4).
+- **The Boards collection's owner has two powers**, both over boards not yet created:
+  `setImplementation` and `allowToken`, as in §2. **`setBaseURI` is gone**: metadata is computed on
+  chain. The protocol fee and treasury are implementation immutables, as today.
+- **Ownership moves only by the two-step handover** (`requestOwnershipHandover` by the new owner,
+  then `completeOwnershipHandover` by the current one within 48 hours). The one-step
+  `transferOwnership` and `renounceOwnership` revert, so ownership can be neither sent to a mistyped
+  address nor thrown away.
+
+### 13.3 Configuration
+
+As §4, except:
+
+| Field | Rule |
+|---|---|
+| `name` | 1 to 100 bytes. Shown as is, escaped for JSON by the renderer; not checked for UTF-8 |
+| `description` | 0 to 1,000 bytes; optional |
+| `sourceCid` | The source image's IPFS address as binary CID bytes: 1 to 64 bytes, a CIDv1 (first byte `0x01`). The protocol cannot check that it addresses the image; renderers check what they fetch against `imageHash` (§13.7) |
+| `imageHash` | `sha256` of the source image's bytes (§13.7) |
+| `kept` | **Removed**, with kept blocks (§4a), `BlockKept`, `keptCount` and `CellsKept` (§11.5). A creator who wants their own spot buys it after creation, like anyone else, and it can be taken like any other block |
+
+Anything else reverts `InvalidConfig`, as today.
+
+### 13.4 Blocks are tokens
+
+- **ERC-721** in full: `balanceOf`, `ownerOf` (reverts `NoSuchBlock` for an id never sold, as the standard requires;
+  §7's zero-for-unsold reading moves to `blockOf`), `approve`, `getApproved`, `setApprovalForAll`,
+  `isApprovedForAll`, `transferFrom`, both `safeTransferFrom`s, and ERC-721 metadata (`name`,
+  `symbol`, `tokenURI`).
+- **A buy mints** each new block to `recipient` (§6), without the receiver callback, so a buy to a
+  contract can be neither refused nor re-entered by it. The `Transfer` from zero is emitted where
+  `BlockBought` is.
+- **Every change of owner goes through one path** (a transfer, a gift, a resale through §7a): it
+  credits the old owner the rent streamed so far (§12.1), ends the rent offer, the resale listing
+  and the editor grant, clears the token's approval, moves the balance, and emits `Transfer`. The
+  tenancy survives (§12.1). A transfer to oneself is allowed by the standard and does the same.
+- **Who may transfer**: the owner, the token's approved address, or an operator the owner approved
+  for all; anyone else reverts `NotAuthorized`. `to` of zero reverts `ZeroAddress`; a `from` that is
+  not the owner reverts `NotBlockOwner`. Transfers are guarded against re-entrancy, and
+  `safeTransferFrom` calls `onERC721Received` after the state has moved (`UnsafeRecipient` on a
+  wrong answer).
+- **An approval moves a block and nothing else.** Editing (`canEdit`), naming an editor, listing,
+  offering for rent and lowering prices are unchanged: an approved address can do none of them.
+- **`transferBlock` and `BlockTransferred` are gone**: `transferFrom` and `Transfer` replace them.
+- **A block with no cells left is still a token** (decided 2026-10-21): it can be held and moved,
+  shows nothing on the board, and still cannot be listed (`NothingLeft`).
+- **`name()`** is the board's name. **`symbol()`** is the Boards collection's `symbol()` followed by
+  `-` and the board's token id (e.g. `XYZ-12`), read from the collection, so no brand is a literal
+  in this contract.
+- **`owner()`** (ERC-173) is `seller()`: whoever holds the board's token manages the collection's
+  page where a marketplace offers that. It grants no power in this contract.
+
+### 13.5 Standards
+
+- **ERC-2981**: a block's `royaltyInfo` pays `RESALE_ROYALTY_BPS` (500) to `seller()` at the moment
+  of the query. A marketplace may ignore it; a resale through §7a always pays it. The board's token
+  keeps §3's royalty to its creator.
+- **ERC-4907, read side**: `userOf(id)` is the tenant while a term is live (zero otherwise),
+  `userExpires(id)` the term's end (zero for none). `UpdateUser` is emitted when a term starts and
+  when it is extended. `setUser` reverts (`NotAuthorized`): a user is made only by a paid term
+  (§12). **Unlike ERC-4907's reference, the user survives a transfer**, because the tenancy does
+  (§12.1).
+- **ERC-4906**: `MetadataUpdate(blockId)` whenever what a block's metadata says changes: an edit or
+  a tenant's edit, a term starting or extended, each block a take shrinks, and `poke` (§13.6). A
+  mint or a transfer emits `Transfer`, which marketplaces read. The board's own token gets
+  `MetadataUpdate` from the collection through `boardChanged()` whenever `changes` moves (§13.6).
+- **ERC-5646**: `getStateFingerprint(id)` is `keccak256(abi.encode(cellsLeft, contentHash,
+  shownHash, tenant, expiry, listPrice, ratePerDay, maxDurationSecs))`. An order that names it
+  cannot be filled after a take, a new picture, a term or a change of listing. It does not cover the
+  take price, which changes weekly by the clock (§11.3) with no transaction.
+- **ERC-7572**: `contractURI()` is the board's collection metadata (§13.8).
+- **ERC-165** for ERC-721, its metadata extension, ERC-2981, ERC-4907, ERC-4906 and ERC-5646. Not
+  ERC-173: `owner()` is its read, but there is no `transferOwnership` — the owner moves only with
+  the board's NFT.
+
+### 13.6 The change counter and `poke`
+
+- **`changes`** counts the changes that alter the drawn board: once per buy (however many
+  rectangles), once per edit or tenant edit, once per `poke`. Each also calls `boardChanged()`.
+- **A term that lapses changes the drawn board with no transaction** (§12.2). `poke(blockId)`, by
+  anyone, once per term, after the term has ended and only if a tenant's picture was showing: it
+  bumps `changes`, calls `boardChanged()` and emits `MetadataUpdate(blockId)`. Otherwise it reverts
+  `NotLapsed`. The once-per-term mark is cleared when a new term starts.
+
+### 13.7 Pictures: hashes and addresses
+
+- **`contentHash` and `tenantHash` are `sha256` of the picture's own bytes** (WebP, PNG or JPEG),
+  with no envelope, so each IS an IPFS address: the CIDv1 of a raw block with a sha2-256 multihash,
+  the 36 bytes `0x01 0x55 0x12 0x20 ‖ hash`, written `b` followed by their RFC 4648 base32,
+  lowercase, without padding (`bafkrei…`). A picture is ONE raw block, so at most 1 MiB; a bigger one
+  has no address its hash names. The contract never hashes, as before; this is how every reader
+  turns a hash into an address.
+- **The source image is too large to be one block**, so its address is `sourceCid` (§13.3) and its
+  hash `imageHash`. A renderer that fetches the source checks `sha256` of the bytes against
+  `imageHash`, and of a block's picture against its hash, and draws nothing it cannot match.
+- **Pinning is not the protocol's**: a picture shows wherever someone keeps it available on IPFS. A
+  hash on chain whose bytes nobody serves draws nothing.
+
+### 13.8 Metadata
+
+Built by the renderer as `data:application/json;base64,…`, every string escaped for JSON.
+`tokenURI` reverts for an id never sold.
+
+| | `name` | `image` | `animation_url` | attributes |
+|---|---|---|---|---|
+| The board's token (Boards collection) | the board's name | `thumbnailBase ‖ boardTokenId ‖ "?v=" ‖ changes`: the composite drawn by whoever serves `thumbnailBase`, at a new address after every change | `rendererPage ‖ "?chain=" ‖ chainid ‖ "&board=" ‖ address` | width, height, cell size, squares, squares free, blocks, settlement token, creator |
+| The board's collection (`contractURI`) | the board's name | `ipfs://` + `sourceCid` | — | `description` when set |
+| A block | the board's name, ` #`, the block id | `ipfs://` + the CID of `shownHash` (the tenant's picture during a term, else the owner's); omitted while there is none | the same page with `&block=` and the id: that block's squares still showing | column, row, columns, rows, squares, squares left, take price now (smallest units of the settlement token, the cost of taking every square it still holds), cooldown end (date), rented until (date, during a term), board |
+
+- `thumbnailBase` and `rendererPage` (an `ipfs://` address of the reference renderer, §13.9) are
+  the renderer's deploy arguments, fixed for every board of that implementation.
+- **The take price is a reading, not a promise**: it falls weekly by reversion (§11.3) with no event,
+  so a marketplace's cached copy goes stale. It never rises without a transaction.
+- **The board's `image` depends on `thumbnailBase` being served**; its `animation_url`, the block
+  `image`s and the collection's `image` depend only on the chain and IPFS.
+
+### 13.9 The drawn board
+
+What every renderer draws, and the reference renderer at `rendererPage` implements:
+
+1. Read the board at one chain block: the grid, every block's rectangle and shown hash, and the
+   cell map (`cellRow` for every row).
+2. Start from the source image, all of it, the strip no whole cell fits included.
+3. For every block in id order, for every cell the cell map gives to that block, lay the block's
+   shown picture over that cell's pixels, source-over with straight (unpremultiplied) alpha. The
+   picture covers the block's whole rectangle: at exactly the rectangle's size in pixels, or at half
+   of each side rounded to the nearest pixel (at least 1), scaled up to it. **The scaling filter is
+   the renderer's**, so two renderers may differ slightly on a half-size picture.
+4. A block with no picture, a picture not available, or one whose bytes do not match its hash is
+   not drawn: the source shows there.
+
+The reference renderer's source is `packages/websitekit-sdk/renderer/` (`pnpm build:renderer`
+writes the one file that is pinned).
+
+This defines what is drawn, not a byte-identical file: decoders and encoders differ, and no render
+hash is recorded on chain. A renderer may draw less than this (a front end applying its own policy);
+it may not draw a block on cells the cell map does not give it.
+
+### 13.10 Events
+
+As §9, except: ERC-721's `Transfer`, `Approval` and `ApprovalForAll` on the board; `Transfer` replaces
+`BlockTransferred` and comes before the `BlockResold` it caused; `BlockKept` is gone; ERC-4906
+`MetadataUpdate` and ERC-4907 `UpdateUser` on the board (§13.5); `BaseURISet` and `BatchMetadataUpdate`
+are gone from the collection. **ERC-721 and ERC-20 `Transfer` share their first topic**: a reader
+tells them apart by the emitting address, never by the topic.
+
+### 13.11 Tests
+
+Everything in §10–§12.4 carried over, plus: an ERC-721 conformance suite; every transfer path at its
+boundary (owner, approved, operator, stranger, to zero, to self, to a contract that refuses);
+invariants that balances sum to the blocks each address owns, that an approval dies with every
+change of owner, that a transfer by an operator settles rent exactly as a gift does (money measured
+across the call), and that no approved address can edit, list or offer a block; the CID encoding as
+a fixture shared with the SDK; `poke` once per term at the second it lapses; the metadata strings
+parsed as JSON for names with quotes, backslashes and control characters; the extension's storage
+layout checked against the board's; and gas for the worst buy and the worst take measured cold
+again under §11.4's bound.

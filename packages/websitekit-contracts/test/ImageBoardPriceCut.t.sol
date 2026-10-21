@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
 import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
@@ -41,10 +42,10 @@ contract ImageBoardPriceCutTest is ImageBoardBase {
     function test_nobodyElseLowersPrices() public {
         uint256 id = _buy(alice, alice, 0, 0, 1, 1);
         vm.prank(alice); // owns a block, not the board
-        vm.expectRevert(ImageBoard.NotBoardHolder.selector);
+        vm.expectRevert(ImageBoardStorage.NotBoardHolder.selector);
         board.lowerPrices(5_000);
         vm.prank(bob);
-        vm.expectRevert(ImageBoard.NotBoardHolder.selector);
+        vm.expectRevert(ImageBoardStorage.NotBoardHolder.selector);
         board.lowerPrices(5_000);
         assertEq(board.ownerOf(id), alice);
         assertEq(board.priceBps(), 10_000);
@@ -57,7 +58,7 @@ contract ImageBoardPriceCutTest is ImageBoardBase {
         collection.transferFrom(seller, bob, token);
 
         vm.prank(seller);
-        vm.expectRevert(ImageBoard.NotBoardHolder.selector);
+        vm.expectRevert(ImageBoardStorage.NotBoardHolder.selector);
         board.lowerPrices(5_000);
 
         _lower(bob, 5_000);
@@ -72,11 +73,11 @@ contract ImageBoardPriceCutTest is ImageBoardBase {
         _lower(seller, 7_000);
 
         vm.prank(seller);
-        vm.expectRevert(ImageBoard.InvalidPrice.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidPrice.selector);
         board.lowerPrices(7_000); // the same
 
         vm.prank(seller);
-        vm.expectRevert(ImageBoard.InvalidPrice.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidPrice.selector);
         board.lowerPrices(7_001); // one up
 
         _lower(seller, 6_999); // one down
@@ -85,13 +86,13 @@ contract ImageBoardPriceCutTest is ImageBoardBase {
 
     function test_fullPriceIsNotACut() public {
         vm.prank(seller);
-        vm.expectRevert(ImageBoard.InvalidPrice.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidPrice.selector);
         board.lowerPrices(10_000);
     }
 
     function test_zeroIsRefusedAndOneIsTheFloor() public {
         vm.prank(seller);
-        vm.expectRevert(ImageBoard.InvalidPrice.selector);
+        vm.expectRevert(ImageBoardStorage.InvalidPrice.selector);
         board.lowerPrices(0);
         _lower(seller, 1);
         assertEq(board.priceBps(), 1);
@@ -109,19 +110,19 @@ contract ImageBoardPriceCutTest is ImageBoardBase {
 
     /// The smallest share on the smallest price is still a unit: no cut makes a square free.
     function test_noCutMakesASquareFree() public {
-        ImageBoard.Config memory cfg = _config(300, 300, 10);
+        ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
         cfg.cellPrice = 1;
         board = _create(cfg);
         _lower(seller, 1);
         assertEq(board.quote(0, 0, 1, 1), 1);
-        vm.expectRevert(ImageBoard.EmptyBlock.selector);
+        vm.expectRevert(ImageBoardStorage.EmptyBlock.selector);
         board.quote(0, 0, 0, 1); // an empty rectangle has no price
     }
 
     function test_zonesAreScaledAlike() public {
-        ImageBoard.Config memory cfg = _config(300, 300, 10);
-        cfg.zones = new ImageBoard.Zone[](1);
-        cfg.zones[0] = ImageBoard.Zone({ col: 0, row: 0, cols: 2, rows: 2, cellPrice: 30_011 });
+        ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
+        cfg.zones = new ImageBoardStorage.Zone[](1);
+        cfg.zones[0] = ImageBoardStorage.Zone({ col: 0, row: 0, cols: 2, rows: 2, cellPrice: 30_011 });
         board = _create(cfg);
         _lower(seller, 2_500);
         // One zone cell and one plain cell: (30,011 + 10,003) / 4 = 10,003.5 → 10,004.
@@ -148,7 +149,7 @@ contract ImageBoardPriceCutTest is ImageBoardBase {
 
         _lower(seller, 6_000);
         uint256 now_ = board.quote(0, 0, 2, 2);
-        ImageBoard.Rect[] memory rects = _one(0, 0, 2, 2);
+        ImageBoardStorage.Rect[] memory rects = _one(0, 0, 2, 2);
         uint256 before = usd.balanceOf(alice);
         vm.prank(alice);
         board.buyBlocksWithPermit(alice, rects, shown, deadline, v, r, s);

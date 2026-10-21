@@ -13,7 +13,7 @@
  * Since takeovers (2026-10-14) a buy writes a block id per cell, eight cells to a storage word, so
  * its cost is driven by the WORDS it writes — fresh (zero → nonzero, ~20,000 more) or already
  * touched — plus, for every block it takes cells from, a credit, a count and an event. The
- * scenarios separate those: fresh and touched words in every shape, takes over 1 to 128 blocks whose
+ * scenarios separate those: fresh and touched words in every shape, takes over 1 to 88 blocks whose
  * owners have nothing credited or something, young and a year old (reversion's loop runs per week),
  * listed or not, a board with 512 zones, several areas in one buy, and a permit. It ends with the
  * formula `lib/image-board-gas.ts` uses, checked against every receipt.
@@ -58,6 +58,8 @@ function artifact(solFile: string, name: string): { abi: Abi; bytecode: Hex } {
 
 const usdArt = artifact('TestUSD.sol', 'TestUSD');
 const boardArt = artifact('ImageBoard.sol', 'ImageBoard');
+const extensionArt = artifact('ImageBoardExtension.sol', 'ImageBoardExtension');
+const rendererArt = artifact('ImageBoardRenderer.sol', 'ImageBoardRenderer');
 const collectionArt = artifact('ImageBoardCollection.sol', 'ImageBoardCollection');
 
 // Anvil mines at once; viem's default 4 s receipt poll would make this run take an hour.
@@ -100,8 +102,10 @@ async function freshBoard(zones: { col: number; row: number; cols: number; rows:
         cellSize: 10,
         cellPrice: 1n,
         imageHash: keccak256(toHex('img')),
+        sourceCid: '0x01551220ab',
+        name: 'Gas board',
+        description: '',
         zones,
-        kept: [],
         terms: STANDARD,
       },
     ]),
@@ -195,18 +199,18 @@ function record(what: string, gas: bigint, o: Partial<Omit<Row, 'what' | 'gas'>>
 
 /** The formula as `lib/image-board-gas.ts` will have it; tuned until every receipt sits under it. */
 const F = {
-  base: 168_000,
+  base: 192_000,
   extraRect: 70_000,
   freshWord: 24_700,
   touchedWord: 7_800,
   cell: 1_000,
-  part: 19_000,
+  part: 22_600,
   week: 220,
   freshOwner: 22_000,
   zone: 3_500,
   zoneExtraRect: 1_000,
   permit: 30_000,
-  emptyLedger: 55_000,
+  emptyLedger: 67_000,
 };
 const estimate = (r: Row) =>
   F.base +
@@ -236,8 +240,10 @@ async function main() {
     }
 
     usd = await deploy(usdArt, [USD_NAME, 'tUSD', 6]);
-    const implementation = await deploy(boardArt, [500n, PROTOCOL]);
-    collection = await deploy(collectionArt, ['Gas Image Boards', 'GIMG', RELAYER.address, implementation, [usd], 'https://example.com/b/']);
+    const extension = await deploy(extensionArt, [500n, PROTOCOL]);
+    const renderer = await deploy(rendererArt, ['https://example.com/i/boards/', 'ipfs://bafyrenderer/']);
+    const implementation = await deploy(boardArt, [extension, renderer]);
+    collection = await deploy(collectionArt, ['Gas Image Boards', 'GIMG', RELAYER.address, implementation, [usd], '']);
     for (const who of [BUYER, OTHER]) {
       for (let i = 0; i < 5; i++) await send(RELAYER, usd, usdArt.abi, 'mint', [who.address, 1_000_000n * 10n ** 6n]);
     }
@@ -268,7 +274,8 @@ async function main() {
 
     // Takes over k one-cell blocks in a row. Owners with nothing credited (each a new address),
     // then one owner who already has credit; young (an hour), then a year old (reversion's last week).
-    for (const k of [1, 8, 32, 128]) {
+    // 88 is the most one buy may take (`MAX_BLOCKS_TAKEN_PER_BUY`): the worst case, measured.
+    for (const k of [1, 8, 32, 88]) {
       for (const owners of ['fresh', 'credited'] as const) {
         for (const age of [3_600, 60 * 7 * 86_400]) {
           const board = await warmedBoard();

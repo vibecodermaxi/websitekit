@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import { ImageBoard } from "../src/ImageBoard.sol";
+import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
 
 /// @notice Four reads the board no longer carries (2026-10-20: dropped to make room for rentals under
 /// EIP-170), rebuilt here from the reads it keeps, so the suites ask what they always asked. Each is
@@ -28,8 +29,8 @@ library ImageBoardReads {
         }
     }
 
-    function _one(uint16 col, uint16 row, uint16 cols, uint16 rows) private pure returns (ImageBoard.Rect[] memory r) {
-        r = new ImageBoard.Rect[](1);
-        r[0] = ImageBoard.Rect(col, row, cols, rows);
+    function _one(uint16 col, uint16 row, uint16 cols, uint16 rows) private pure returns (ImageBoardStorage.Rect[] memory r) {
+        r = new ImageBoardStorage.Rect[](1);
+        r[0] = ImageBoardStorage.Rect(col, row, cols, rows);
     }
 }

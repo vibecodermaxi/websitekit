@@ -43,6 +43,7 @@ export {
   decodeLinked,
   readContent,
   contentHashToCid,
+  cidBytesToString,
   cidToContentHash,
 } from './content';
 export type { EncodedContent, DecodedContent, DecodedLinked, ContentResult, ContentFailure } from './content';

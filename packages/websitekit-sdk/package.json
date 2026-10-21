@@ -1,6 +1,6 @@
 {
   "name": "@websitekit/sdk",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Issuance and settlement layer for tokenized page inventory — reads, writes and pricing for SlotSite.",
   "license": "MIT",
   "repository": {
@@ -57,14 +57,16 @@
     "prepack": "tsup",
     "prepublishOnly": "node ../../scripts/assert-pnpm-publish.mjs",
     "test": "vitest run --passWithNoTests",
-    "lint": "tsc --noEmit && tsc -p tsconfig.scripts.json",
-    "sync:abi": "node scripts/sync-abi.mjs"
+    "lint": "tsc --noEmit && tsc -p tsconfig.scripts.json && tsc -p renderer/tsconfig.json",
+    "sync:abi": "node scripts/sync-abi.mjs",
+    "build:renderer": "node renderer/build.mjs"
   },
   "peerDependencies": {
     "viem": "^2"
   },
   "devDependencies": {
     "@types/node": "26.1.1",
+    "esbuild": "0.25.12",
     "viem": "2.55.8"
   }
 }

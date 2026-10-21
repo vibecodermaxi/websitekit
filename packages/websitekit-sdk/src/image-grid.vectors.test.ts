@@ -7,19 +7,20 @@
  * is the other end.
  *
  * **What the fixture pins**: grid derivation for 28 image sizes, at both ends of the cell-size range
- * (2026-10-20) and both grid limits; `layoutProblem` against what `initialize` refused for 20 sets of zones and kept blocks;
+ * (2026-10-20) and both grid limits; `layoutProblem` against what `initialize` refused for 14 sets of zones;
  * `termsError` against what it refused for 19 sets of terms, at every clamp and one past it. Since
  * takeovers (2026-10-14): `blockError` and `quote` for every rectangle of nine shapes at every origin
- * (one past the grid in the first sweep) on a board with zones (one priced near 2^150), a kept block
- * owned and one given away, blocks taken in part and twice, some cooling — at three moments: with
+ * (one past the grid in the first sweep) on a board with zones (one priced near 2^150), a block given
+ * away, blocks taken in part and twice, some cooling — at three moments: with
  * blocks cooling, a week into reversion, and with free squares cut to 3,333 bps and every block past
  * its last week (one bought at the cut, its level under 10,000) — and the word and block caps at
- * their boundaries on a 256 × 600 board; a kept block in its first hour (kept refuses before
- * cooling); a board whose reversion stops at two weeks, week by week past it; `buyError` and
- * `quoteBlocks` for 24 lists (the caps counted across rectangles, a block in two), each also bought
+ * their boundaries on a 256 × 600 board; a board whose reversion stops at two weeks, week by week past
+ * it; `buyError` and `quoteBlocks` for 23 lists (the caps counted across rectangles, a block in two), each also bought
  * for real by the generator, which asserts the buy refused with the same error or pulled the quote.
  * The cell map is decoded by `cellMapOf` from the words `cellRow` returned, and on every state
- * `cellMapFromBlocks` must paint the same map from the blocks' rectangles alone.
+ * `cellMapFromBlocks` must paint the same map from the blocks' rectangles alone. Since spec §13
+ * (2026-10-21): the IPFS addresses the renderer writes for ten hashes and binary CIDs, against
+ * `contentHashToCid` and `cidBytesToString`. Kept squares were removed from both ends.
  *
  * **What it does not**: the zone ceiling (512 zones, asserted in `image-grid.test.ts` and the
  * contract's own suite), overflow (asserted in `image-grid.test.ts`), and any board shape outside
@@ -31,8 +32,10 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Hex } from 'viem';
 import { describe, expect, it } from 'vitest';
 
+import { cidBytesToString, contentHashToCid } from './content';
 import {
   LAYOUT_ERROR,
   blockError,
@@ -59,11 +62,11 @@ const hasForge = spawnSync('forge', ['--version'], { encoding: 'utf-8' }).status
 if (!hasForge && process.env.CI) throw new Error('image-grid vectors: forge is not on PATH, and this is CI');
 
 type ZoneJson = [number, number, number, number, string];
-type KeptJson = [number, number, number, number];
+type RectJson = [number, number, number, number];
 
 type Line =
   | { kind: 'grid'; width: number; height: number; cellSize: number; gridCols?: number; gridRows?: number; error: string }
-  | { kind: 'layout'; zones: ZoneJson[]; kept: KeptJson[]; error: string }
+  | { kind: 'layout'; zones: ZoneJson[]; error: string }
   | ({ kind: 'terms'; error: string } & TakeTerms)
   | {
       kind: 'state';
@@ -73,17 +76,16 @@ type Line =
       priceBps: number;
       zones: ZoneJson[];
       terms: TakeTerms;
-      creator: string;
-      keptCount: number;
       now: string;
       rows: [number, string[]][];
       blocks: [number, string, string, string, number, number, number, number][];
     }
   | ({ kind: 'rect'; error: BlockErrorName; total: string } & Rect)
-  | { kind: 'multi'; rects: KeptJson[]; error: BlockErrorName; total: string };
+  | { kind: 'multi'; rects: RectJson[]; error: BlockErrorName; total: string }
+  | { kind: 'cid'; hash?: Hex; bytes?: Hex; cid: string };
 
 const zoneOf = ([col, row, cols, rows, price]: ZoneJson): Zone => ({ col, row, cols, rows, cellPrice: BigInt(price) });
-const rectOf = ([col, row, cols, rows]: KeptJson): Rect => ({ col, row, cols, rows });
+const rectOf = ([col, row, cols, rows]: RectJson): Rect => ({ col, row, cols, rows });
 
 /** The twin's state from a `state` line: the cell map decoded from the contract's own words. */
 function stateOf(line: Extract<Line, { kind: 'state' }>): { state: GridState; now: bigint } {
@@ -99,8 +101,6 @@ function stateOf(line: Extract<Line, { kind: 'state' }>): { state: GridState; no
       zones: line.zones.map(zoneOf),
       priceBps: line.priceBps,
       terms: line.terms,
-      creator: line.creator,
-      keptCount: line.keptCount,
       cells: cellMapOf(grid, rows),
       blocks: new Map(line.blocks.map(([id, owner, level, boughtAt]) => [id, { owner, level: BigInt(level), boughtAt: BigInt(boughtAt) }])),
     },
@@ -128,7 +128,7 @@ describe.skipIf(!hasForge)('the grid rule agrees with ImageBoard.sol', () => {
     expect(of('grid').length).toBeGreaterThanOrEqual(19);
     expect(of('state').length).toBe(10);
     const answers = [...of('rect'), ...of('multi')];
-    for (const name of ['none', 'EmptyBlock', 'OutsideGrid', 'CellsTaken', 'CellsKept', 'CoolingDown', 'TooLarge', 'TooManyBlocks'] as const) {
+    for (const name of ['none', 'EmptyBlock', 'OutsideGrid', 'CellsTaken', 'CoolingDown', 'TooLarge', 'TooManyBlocks'] as const) {
       expect(answers.filter((l) => l.error === name).length, name).toBeGreaterThan(0);
     }
   });
@@ -159,15 +159,15 @@ describe.skipIf(!hasForge)('the grid rule agrees with ImageBoard.sol', () => {
     expect(checked).toBeGreaterThan(0);
   });
 
-  it('refuses the same zones and kept blocks, with the same error', () => {
+  it('refuses the same zones, with the same error', () => {
     const layouts = of('layout');
-    expect(layouts.length).toBeGreaterThanOrEqual(20);
-    for (const name of ['none', 'InvalidConfig', 'EmptyBlock', 'OutsideGrid', 'CellsTaken']) {
+    expect(layouts.length).toBeGreaterThanOrEqual(14);
+    for (const name of ['none', 'InvalidConfig']) {
       expect(layouts.some((l) => l.error === name), name).toBe(true);
     }
     const grid = { cols: 12, rows: 10 };
     for (const line of layouts) {
-      const found = layoutProblem(grid, line.zones.map(zoneOf), line.kept.map(rectOf));
+      const found = layoutProblem(grid, line.zones.map(zoneOf));
       expect(found ? LAYOUT_ERROR[found.problem] : 'none', JSON.stringify(line)).toBe(line.error);
     }
   });
@@ -233,6 +233,16 @@ describe.skipIf(!hasForge)('the grid rule agrees with ImageBoard.sol', () => {
       if (line.error === 'none') expect(quoteBlocks(current.state, rects, current.now)).toBe(BigInt(line.total));
       checked++;
     }
-    expect(checked).toBeGreaterThanOrEqual(24);
+    expect(checked).toBeGreaterThanOrEqual(23);
+  });
+
+  it('writes every IPFS address as the renderer does', () => {
+    const cids = of('cid');
+    expect(cids.filter((l) => l.hash).length).toBe(4);
+    expect(cids.filter((l) => l.bytes).length).toBe(6);
+    for (const line of cids) {
+      const ours = line.hash ? contentHashToCid(line.hash) : cidBytesToString(line.bytes!);
+      expect(ours, JSON.stringify(line)).toBe(line.cid);
+    }
   });
 });

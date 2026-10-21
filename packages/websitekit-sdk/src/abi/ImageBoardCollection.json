@@ -28,7 +28,7 @@
         "internalType": "address[]"
       },
       {
-        "name": "baseURI_",
+        "name": "contractURI_",
         "type": "string",
         "internalType": "string"
       }
@@ -105,19 +105,6 @@
   },
   {
     "type": "function",
-    "name": "baseURI",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string",
-        "internalType": "string"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "boardChanged",
     "inputs": [],
     "outputs": [],
@@ -174,6 +161,19 @@
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "contractURI",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -476,19 +476,6 @@
   },
   {
     "type": "function",
-    "name": "setBaseURI",
-    "inputs": [
-      {
-        "name": "baseURI_",
-        "type": "string",
-        "internalType": "string"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setImplementation",
     "inputs": [
       {
@@ -617,7 +604,7 @@
     "name": "transferOwnership",
     "inputs": [
       {
-        "name": "newOwner",
+        "name": "",
         "type": "address",
         "internalType": "address"
       }
@@ -671,38 +658,6 @@
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "BaseURISet",
-    "inputs": [
-      {
-        "name": "baseURI",
-        "type": "string",
-        "indexed": false,
-        "internalType": "string"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "BatchMetadataUpdate",
-    "inputs": [
-      {
-        "name": "_fromTokenId",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "_toTokenId",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -876,6 +831,11 @@
   {
     "type": "error",
     "name": "FailedDeployment",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "HandoverOnly",
     "inputs": []
   },
   {
