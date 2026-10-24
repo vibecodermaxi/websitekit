@@ -6,8 +6,8 @@ import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
 import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
-
 using ImageBoardReads for ImageBoard;
+
 /// @notice Zones (cells priced differently from `cellPrice`), `IMAGE-BOARD-SPEC.md` §4a; a zone
 /// priced zero keeps its cells and has its own suite (`ImageBoardKept.t.sol`). Every rule at its boundary: a zone ending exactly on
 /// the grid's edge and one cell past it, zones that touch and zones that share one cell, a block one
@@ -229,6 +229,10 @@ contract ImageBoardZonesTest is ImageBoardBase {
         }
         uint256 before = gasleft();
         _create(cfg);
-        assertLt(before - gasleft(), uint256(32_000_000) * 10 / 12, "creating the most zones no longer fits one transaction");
+        assertLt(
+            before - gasleft(),
+            uint256(32_000_000) * 10 / 12,
+            "creating the most zones no longer fits one transaction"
+        );
     }
 }

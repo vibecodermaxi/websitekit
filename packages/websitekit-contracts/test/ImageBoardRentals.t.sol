@@ -18,7 +18,9 @@ contract ImageBoardRentalsTest is ImageBoardBase {
     uint256 internal id;
 
     event RentListed(uint256 indexed blockId, address indexed owner, uint256 ratePerDay, uint256 maxDurationSecs);
-    event BlockRented(uint256 indexed blockId, address indexed tenant, address indexed payer, uint256 expiry, uint256 cost);
+    event BlockRented(
+        uint256 indexed blockId, address indexed tenant, address indexed payer, uint256 expiry, uint256 cost
+    );
 
     function setUp() public override {
         super.setUp();
@@ -365,7 +367,11 @@ contract ImageBoardRentalsTest is ImageBoardBase {
         uint256 unstreamed = prepaid - streamed;
         uint256 refund = (unstreamed * 8) / 20;
         assertEq(board.pendingWithdrawals(tenant), refund, "the tenant is refunded for the cells lost");
-        assertGe(board.pendingWithdrawals(alice) - owner0, streamed, "the owner keeps what streamed (and the take's payout)");
+        assertGe(
+            board.pendingWithdrawals(alice) - owner0,
+            streamed,
+            "the owner keeps what streamed (and the take's payout)"
+        );
 
         ImageBoardStorage.Rental memory t = board.rentalOf(id);
         assertEq(t.prepaid, unstreamed - refund, "the rest streams on");

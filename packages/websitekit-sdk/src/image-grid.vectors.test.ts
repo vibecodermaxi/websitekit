@@ -114,6 +114,8 @@ function generate(): Line[] {
   const result = spawnSync('forge', ['script', 'script/GenImageGridVectors.s.sol'], {
     cwd: contractsDir,
     encoding: 'utf-8',
+    // A failing run prints its whole trace; at the default 1 MiB it is cut off before the error.
+    maxBuffer: 64 * 1024 * 1024,
   });
   if (result.status !== 0) throw new Error(`GenImageGridVectors failed:\n${result.stdout}\n${result.stderr}`);
   if (!existsSync(outFile)) throw new Error(`no vectors at ${outFile}`);

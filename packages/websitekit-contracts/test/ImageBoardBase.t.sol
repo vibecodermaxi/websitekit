@@ -21,7 +21,8 @@ abstract contract ImageBoardBase is Test {
 
     /// A binary CIDv1 for a source image (raw, sha2-256 of "original image bytes"): the shape the
     /// board checks, not an address anything resolves.
-    bytes internal constant SOURCE_CID = hex"01551220a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+    bytes internal constant SOURCE_CID =
+        hex"01551220a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
 
     /// `sha256("original image bytes")`, as a literal: a `sha256` call inside an argument list would
     /// consume a pending `vm.prank` (it is a precompile CALL).
@@ -47,7 +48,9 @@ abstract contract ImageBoardBase is Test {
         implementation = _implementation(PROTOCOL_BPS, protocol);
         address[] memory tokens = new address[](1);
         tokens[0] = address(usd);
-        collection = new ImageBoardCollection("Test Image Boards", "TIMG", address(this), address(implementation), tokens, "data:application/json,{}");
+        collection = new ImageBoardCollection(
+            "Test Image Boards", "TIMG", address(this), address(implementation), tokens, "data:application/json,{}"
+        );
 
         board = _create(_config(300, 671, 10));
 
@@ -81,7 +84,9 @@ abstract contract ImageBoardBase is Test {
     /// The page boards' *Standard* profile: takes at 1.4× the floor, 1.15× of it to the displaced
     /// owner, reverting 3% a week over at most 52, an hour's cooldown.
     function _standardTerms() internal pure returns (ImageBoardStorage.Terms memory) {
-        return ImageBoardStorage.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 });
+        return ImageBoardStorage.Terms({
+            takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600
+        });
     }
 
     function _create(ImageBoardStorage.Config memory cfg) internal returns (ImageBoard) {
@@ -98,7 +103,11 @@ abstract contract ImageBoardBase is Test {
     }
 
     /// One rectangle, as the list `buyBlocks` takes.
-    function _one(uint16 col, uint16 row, uint16 cols, uint16 rows) internal pure returns (ImageBoardStorage.Rect[] memory rects) {
+    function _one(uint16 col, uint16 row, uint16 cols, uint16 rows)
+        internal
+        pure
+        returns (ImageBoardStorage.Rect[] memory rects)
+    {
         rects = new ImageBoardStorage.Rect[](1);
         rects[0] = ImageBoardStorage.Rect({ col: col, row: row, cols: cols, rows: rows });
     }

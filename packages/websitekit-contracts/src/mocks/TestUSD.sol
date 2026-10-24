@@ -56,7 +56,10 @@ contract TestUSD is ERC20, ERC20Permit {
     /// @notice The raw-unit ceiling on one `mint`, derived from this token's own decimals.
     uint256 public immutable maxMintPerCall;
 
-    constructor(string memory name_, string memory symbol_, uint8 decimals_) ERC20(name_, symbol_) ERC20Permit(name_) {
+    constructor(string memory name_, string memory symbol_, uint8 decimals_)
+        ERC20(name_, symbol_)
+        ERC20Permit(name_)
+    {
         _decimals = decimals_;
         maxMintPerCall = MAX_MINT_WHOLE_UNITS * (10 ** uint256(decimals_));
     }

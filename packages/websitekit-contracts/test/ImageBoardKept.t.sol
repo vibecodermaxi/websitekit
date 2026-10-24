@@ -190,7 +190,9 @@ contract ImageBoardKeptTest is ImageBoardBase {
 
         rects[0] = ImageBoardStorage.Rect(0, 0, 2, 2);
         rects[1] = ImageBoardStorage.Rect(1, 1, 10, 10);
-        assertEq(board.buyError(rects), ImageBoardStorage.CellsTaken.selector, "the second overlaps the first, and is kept");
+        assertEq(
+            board.buyError(rects), ImageBoardStorage.CellsTaken.selector, "the second overlaps the first, and is kept"
+        );
 
         rects[0] = ImageBoardStorage.Rect(0, 0, 1, 1);
         rects[1] = ImageBoardStorage.Rect(9, 9, 2, 2);

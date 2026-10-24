@@ -8,8 +8,8 @@ import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardCollection } from "../src/ImageBoardCollection.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
-
 using ImageBoardReads for ImageBoard;
+
 /// @notice `ImageBoard` against `docs/IMAGE-BOARD-SPEC.md`. The invariants live in
 /// `ImageBoard.invariant.t.sol`; this file pins each rule at its boundary.
 contract ImageBoardTest is ImageBoardBase {
@@ -562,7 +562,8 @@ contract ImageBoardTest is ImageBoardBase {
         assertEq(collection.name(), "Test Image Boards");
         assertEq(collection.symbol(), "TIMG");
         address[] memory tokens = new address[](0);
-        ImageBoardCollection other = new ImageBoardCollection("Another", "ANO", address(this), address(implementation), tokens, "");
+        ImageBoardCollection other =
+            new ImageBoardCollection("Another", "ANO", address(this), address(implementation), tokens, "");
         assertEq(other.name(), "Another");
         assertEq(other.symbol(), "ANO");
         vm.expectRevert(ImageBoardCollection.EmptyName.selector);

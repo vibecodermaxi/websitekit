@@ -13,7 +13,11 @@ library ImageBoardReads {
         return (b.gridCols(), b.gridRows());
     }
 
-    function blockError(ImageBoard b, uint16 col, uint16 row, uint16 cols, uint16 rows) internal view returns (bytes4) {
+    function blockError(ImageBoard b, uint16 col, uint16 row, uint16 cols, uint16 rows)
+        internal
+        view
+        returns (bytes4)
+    {
         return b.buyError(_one(col, row, cols, rows));
     }
 
@@ -29,7 +33,11 @@ library ImageBoardReads {
         }
     }
 
-    function _one(uint16 col, uint16 row, uint16 cols, uint16 rows) private pure returns (ImageBoardStorage.Rect[] memory r) {
+    function _one(uint16 col, uint16 row, uint16 cols, uint16 rows)
+        private
+        pure
+        returns (ImageBoardStorage.Rect[] memory r)
+    {
         r = new ImageBoardStorage.Rect[](1);
         r[0] = ImageBoardStorage.Rect(col, row, cols, rows);
     }

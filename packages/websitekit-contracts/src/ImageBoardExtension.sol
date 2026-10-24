@@ -27,7 +27,9 @@ import { TermsLib } from "./TermsLib.sol";
 contract ImageBoardExtension is ImageBoardStorage {
     using SafeERC20 for IERC20;
 
-    constructor(uint256 protocolBps_, address protocolTreasury_) ImageBoardStorage(protocolBps_, protocolTreasury_) { }
+    constructor(uint256 protocolBps_, address protocolTreasury_)
+        ImageBoardStorage(protocolBps_, protocolTreasury_)
+    { }
 
     // ---------------------------------------------------------------------
     // Set-up
@@ -50,7 +52,9 @@ contract ImageBoardExtension is ImageBoardStorage {
         if (bytes(cfg.name).length == 0 || bytes(cfg.name).length > 100) revert InvalidConfig();
         if (bytes(cfg.description).length > 1_000) revert InvalidConfig();
         // A binary CIDv1; whether it addresses the image is for renderers to check against `imageHash`.
-        if (cfg.sourceCid.length == 0 || cfg.sourceCid.length > 64 || cfg.sourceCid[0] != 0x01) revert InvalidConfig();
+        if (cfg.sourceCid.length == 0 || cfg.sourceCid.length > 64 || cfg.sourceCid[0] != 0x01) {
+            revert InvalidConfig();
+        }
         Terms memory t = cfg.terms;
         TermsLib.checkEconomicsAbsolute(
             TermsLib.Economics(t.takeBps, t.payoutBps, t.reversionBps, t.maxReversionWeeks, t.cooldownSecs),
@@ -83,7 +87,9 @@ contract ImageBoardExtension is ImageBoardStorage {
         maxReversionWeeks = uint8(t.maxReversionWeeks);
         cooldownSecs = uint32(t.cooldownSecs);
 
-        emit BoardInitialized(msg.sender, boardTokenId_, cfg.settlementToken, uint16(cols), uint16(rows), cfg.cellPrice);
+        emit BoardInitialized(
+            msg.sender, boardTokenId_, cfg.settlementToken, uint16(cols), uint16(rows), cfg.cellPrice
+        );
 
         // A board that keeps every cell has nothing to sell.
         uint256 sellable = _setZones(cfg.zones, rows, cols * rows, cfg.cellPrice);
@@ -140,7 +146,8 @@ contract ImageBoardExtension is ImageBoardStorage {
         }
         if (_blocks[blockId].cellsLeft == 0) revert NothingLeft();
         if (maxDurationSecs < MIN_RENTAL_DURATION || maxDurationSecs > MAX_RENTAL_TERM) revert TermTooLong();
-        rentListing[blockId] = RentListing({ ratePerDay: SafeCast.toUint192(ratePerDay), maxDurationSecs: maxDurationSecs });
+        rentListing[blockId] =
+            RentListing({ ratePerDay: SafeCast.toUint192(ratePerDay), maxDurationSecs: maxDurationSecs });
         emit RentListed(blockId, msg.sender, ratePerDay, maxDurationSecs);
     }
 
@@ -149,7 +156,10 @@ contract ImageBoardExtension is ImageBoardStorage {
     /// pays the whole term up front: 5% to the protocol, 5% to whoever holds the board's NFT, and the
     /// rest held here and streamed to whoever owns the block as the term runs. A rental starting ends
     /// any resale listing, so nobody buys a block whose term they were not shown.
-    function rent(uint256 blockId, address tenant, uint64 durationSecs, uint256 expectedRatePerDay) external nonReentrant {
+    function rent(uint256 blockId, address tenant, uint64 durationSecs, uint256 expectedRatePerDay)
+        external
+        nonReentrant
+    {
         _rent(blockId, tenant, durationSecs, expectedRatePerDay);
     }
 

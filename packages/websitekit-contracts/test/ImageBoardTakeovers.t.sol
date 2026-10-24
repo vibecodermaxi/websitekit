@@ -9,8 +9,8 @@ import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { TermsLib } from "../src/TermsLib.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
-
 using ImageBoardReads for ImageBoard;
+
 /// @notice Takeovers (`IMAGE-BOARD-SPEC.md` §11, 2026-10-14): any cell may be bought, sold or not,
 /// except one still in its cooldown. Each rule at its boundary, the money to the unit, and the gas
 /// the caps are set from, measured cold.
@@ -396,6 +396,7 @@ contract ImageBoardTakeoversTest is ImageBoardBase {
         emit log_named_uint("worst take at both caps, gas", used);
         assertLt(used, TX_CAP_WITH_HEADROOM);
     }
+
     /// The same take with every block it covers rented for a year, each to its own tenant (2026-10-20):
     /// each tenancy is settled, refunded and restarted inside the buy, every refund a fresh balance —
     /// the dearest take there is.

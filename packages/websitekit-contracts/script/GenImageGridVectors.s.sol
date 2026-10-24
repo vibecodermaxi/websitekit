@@ -12,8 +12,8 @@ import { ImageBoardRenderer } from "../src/ImageBoardRenderer.sol";
 import { TermsLib } from "../src/TermsLib.sol";
 import { TestUSD } from "../src/mocks/TestUSD.sol";
 
-
 using ImageBoardReads for ImageBoard;
+
 /// @notice The image-board grid rule as JSONL, for the TypeScript twin to assert against
 /// (`packages/websitekit-sdk/src/image-grid.ts`). Written to `out/image-grid-vectors.jsonl` via `vm.writeLine`.
 ///
@@ -69,10 +69,12 @@ contract GenImageGridVectors is Script {
         // 60 decimals, so one mint covers buying cells in the zone priced near 2^150.
         usd = new TestUSD("Vector Dollar", "vUSD", 60);
         ImageBoardRenderer renderer = new ImageBoardRenderer("https://example.com/i/boards/", "ipfs://bafyrenderer/");
-        ImageBoard implementation = new ImageBoard(address(new ImageBoardExtension(500, address(0xBEEF))), address(renderer));
+        ImageBoard implementation =
+            new ImageBoard(address(new ImageBoardExtension(500, address(0xBEEF))), address(renderer));
         address[] memory tokens = new address[](1);
         tokens[0] = address(usd);
-        collection = new ImageBoardCollection("Vector Image Boards", "VIMG", SELLER, address(implementation), tokens, "");
+        collection =
+            new ImageBoardCollection("Vector Image Boards", "VIMG", SELLER, address(implementation), tokens, "");
 
         _emitGrids();
         _emitLayouts();
@@ -86,7 +88,9 @@ contract GenImageGridVectors is Script {
     }
 
     function _standard() internal pure returns (ImageBoardStorage.Terms memory) {
-        return ImageBoardStorage.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 });
+        return ImageBoardStorage.Terms({
+            takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600
+        });
     }
 
     function _config(uint32 w, uint32 h, uint8 cell) internal view returns (ImageBoardStorage.Config memory cfg) {
@@ -146,7 +150,11 @@ contract GenImageGridVectors is Script {
             );
             try collection.createBoardFor(SELLER, abi.encode(_config(w, h, cell))) returns (address b, uint256) {
                 (uint16 c, uint16 r) = ImageBoard(b).gridSize();
-                _write(string.concat(head, ',"gridCols":', vm.toString(c), ',"gridRows":', vm.toString(r), ',"error":"none"}'));
+                _write(
+                    string.concat(
+                        head, ',"gridCols":', vm.toString(c), ',"gridRows":', vm.toString(r), ',"error":"none"}'
+                    )
+                );
             } catch (bytes memory reason) {
                 require(bytes4(reason) == ImageBoardStorage.InvalidConfig.selector, "unexpected refusal");
                 _write(string.concat(head, ',"error":"InvalidConfig"}'));
@@ -158,7 +166,11 @@ contract GenImageGridVectors is Script {
     // Zones
     // -----------------------------------------------------------------
 
-    function _zone(uint16 c, uint16 r, uint16 w, uint16 h, uint192 p) internal pure returns (ImageBoardStorage.Zone memory) {
+    function _zone(uint16 c, uint16 r, uint16 w, uint16 h, uint192 p)
+        internal
+        pure
+        returns (ImageBoardStorage.Zone memory)
+    {
         return ImageBoardStorage.Zone({ col: c, row: r, cols: w, rows: h, cellPrice: p });
     }
 
@@ -223,7 +235,13 @@ contract GenImageGridVectors is Script {
         }
         _write(
             string.concat(
-                '{"kind":"layout","cellPrice":"', vm.toString(cellPrice), '","zones":', _zonesJson(zones), ',"error":"', err, '"}'
+                '{"kind":"layout","cellPrice":"',
+                vm.toString(cellPrice),
+                '","zones":',
+                _zonesJson(zones),
+                ',"error":"',
+                err,
+                '"}'
             )
         );
     }
@@ -419,8 +437,17 @@ contract GenImageGridVectors is Script {
     /// Every rectangle of the shapes below at every origin — one past the grid too when `edges`.
     function _sweep(ImageBoard board, bool edges) internal {
         _emitState(board);
-        uint16[2][9] memory sizes =
-            [[uint16(1), 1], [uint16(2), 2], [uint16(3), 2], [uint16(5), 1], [uint16(1), 4], [uint16(4), 4], [uint16(12), 10], [uint16(0), 1], [uint16(1), 0]];
+        uint16[2][9] memory sizes = [
+            [uint16(1), 1],
+            [uint16(2), 2],
+            [uint16(3), 2],
+            [uint16(5), 1],
+            [uint16(1), 4],
+            [uint16(4), 4],
+            [uint16(12), 10],
+            [uint16(0), 1],
+            [uint16(1), 0]
+        ];
         (uint16 gc, uint16 gr) = board.gridSize();
         for (uint16 col = 0; col <= gc; col++) {
             for (uint16 row = 0; row <= gr; row++) {
@@ -514,7 +541,17 @@ contract GenImageGridVectors is Script {
             require(bytes4(reason) == err, "the buy refused with another error");
         }
         vm.revertToState(snap);
-        _write(string.concat('{"kind":"multi","rects":', _rectsJson(rects), ',"error":"', _errorName(err), '","total":"', vm.toString(total), '"}'));
+        _write(
+            string.concat(
+                '{"kind":"multi","rects":',
+                _rectsJson(rects),
+                ',"error":"',
+                _errorName(err),
+                '","total":"',
+                vm.toString(total),
+                '"}'
+            )
+        );
     }
 
     /// Terms whose reversion stops after two weeks: past them a taken block's floor holds, which a
@@ -522,7 +559,9 @@ contract GenImageGridVectors is Script {
     function _emitShortReversion() internal {
         ImageBoardStorage.Config memory cfg = _config(125, 104, 10);
         cfg.cellPrice = 1_000_003;
-        cfg.terms = ImageBoardStorage.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_900, maxReversionWeeks: 2, cooldownSecs: 3_600 });
+        cfg.terms = ImageBoardStorage.Terms({
+            takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_900, maxReversionWeeks: 2, cooldownSecs: 3_600
+        });
         (address created,) = collection.createBoardFor(SELLER, abi.encode(cfg));
         ImageBoard board = ImageBoard(created);
         _fund(board, B1);
@@ -675,7 +714,9 @@ contract GenImageGridVectors is Script {
     }
 
     function _rectJson(ImageBoardStorage.Block memory b) internal pure returns (string memory) {
-        return string.concat(vm.toString(b.col), ",", vm.toString(b.row), ",", vm.toString(b.cols), ",", vm.toString(b.rows), "]");
+        return string.concat(
+            vm.toString(b.col), ",", vm.toString(b.row), ",", vm.toString(b.cols), ",", vm.toString(b.rows), "]"
+        );
     }
 
     function _list(ImageBoardStorage.Rect memory a) internal pure returns (ImageBoardStorage.Rect[] memory l) {
@@ -683,7 +724,11 @@ contract GenImageGridVectors is Script {
         l[0] = a;
     }
 
-    function _list(ImageBoardStorage.Rect memory a, ImageBoardStorage.Rect memory b) internal pure returns (ImageBoardStorage.Rect[] memory l) {
+    function _list(ImageBoardStorage.Rect memory a, ImageBoardStorage.Rect memory b)
+        internal
+        pure
+        returns (ImageBoardStorage.Rect[] memory l)
+    {
         l = new ImageBoardStorage.Rect[](2);
         l[0] = a;
         l[1] = b;
@@ -710,7 +755,11 @@ contract GenImageGridVectors is Script {
     function _emitCids(ImageBoardRenderer renderer) internal {
         bytes32[4] memory hashes = [bytes32(0), bytes32(type(uint256).max), sha256("hello"), keccak256("v")];
         for (uint256 i = 0; i < hashes.length; i++) {
-            _write(string.concat('{"kind":"cid","hash":"', vm.toString(hashes[i]), '","cid":"', renderer.rawCid(hashes[i]), '"}'));
+            _write(
+                string.concat(
+                    '{"kind":"cid","hash":"', vm.toString(hashes[i]), '","cid":"', renderer.rawCid(hashes[i]), '"}'
+                )
+            );
         }
         bytes[6] memory cids = [
             bytes(hex"01"),
@@ -721,7 +770,11 @@ contract GenImageGridVectors is Script {
             abi.encodePacked(hex"0170122020", sha256("source"))
         ];
         for (uint256 i = 0; i < cids.length; i++) {
-            _write(string.concat('{"kind":"cid","bytes":"', vm.toString(cids[i]), '","cid":"', renderer.cidOf(cids[i]), '"}'));
+            _write(
+                string.concat(
+                    '{"kind":"cid","bytes":"', vm.toString(cids[i]), '","cid":"', renderer.cidOf(cids[i]), '"}'
+                )
+            );
         }
     }
 

@@ -71,7 +71,12 @@ contract ImageBoardRenderer {
         ImageBoard b = ImageBoard(board);
         return _data(
             string.concat(
-                '{"name":', _q(b.name()), _description(b.description()), ',"image":', _q(string.concat("ipfs://", cidOf(b.sourceCid()))), "}"
+                '{"name":',
+                _q(b.name()),
+                _description(b.description()),
+                ',"image":',
+                _q(string.concat("ipfs://", cidOf(b.sourceCid()))),
+                "}"
             )
         );
     }
@@ -81,7 +86,8 @@ contract ImageBoardRenderer {
     function blockURI(address board, uint256 blockId) external view returns (string memory) {
         ImageBoard b = ImageBoard(board);
         bytes32 shown = b.shownHash(blockId);
-        string memory image = shown == bytes32(0) ? "" : string.concat(',"image":', _q(string.concat("ipfs://", rawCid(shown))));
+        string memory image =
+            shown == bytes32(0) ? "" : string.concat(',"image":', _q(string.concat("ipfs://", rawCid(shown))));
         return _data(
             string.concat(
                 '{"name":',
@@ -145,14 +151,23 @@ contract ImageBoardRenderer {
         uint256 base = _baseOf(b, k, blockId);
         uint256 takeBps = b.takeBps();
         (, uint256 floorLevel) = Pricing.computeTakePrice(
-            k.level, BPS_DENOMINATOR, (block.timestamp - k.boughtAt) / 1 weeks, b.reversionBps(), takeBps, b.maxReversionWeeks()
+            k.level,
+            BPS_DENOMINATOR,
+            (block.timestamp - k.boughtAt) / 1 weeks,
+            b.reversionBps(),
+            takeBps,
+            b.maxReversionWeeks()
         );
         return (base * floorLevel * takeBps) / BPS_SQUARED;
     }
 
     /// @dev The creation price of the cells `blockId` still holds: each cell its zone's price or the
     /// board's, painted zone by zone as the board does, so cells plus zones, never their product.
-    function _baseOf(ImageBoard b, ImageBoardStorage.Block memory k, uint256 blockId) internal view returns (uint256 base) {
+    function _baseOf(ImageBoard b, ImageBoardStorage.Block memory k, uint256 blockId)
+        internal
+        view
+        returns (uint256 base)
+    {
         uint256[] memory prices = new uint256[](uint256(k.cols) * k.rows);
         uint256 price = b.cellPrice();
         for (uint256 i = 0; i < prices.length; i++) {
@@ -171,7 +186,10 @@ contract ImageBoardRenderer {
         }
     }
 
-    function _paintZone(uint256[] memory prices, ImageBoardStorage.Block memory k, ImageBoardStorage.Zone memory z) internal pure {
+    function _paintZone(uint256[] memory prices, ImageBoardStorage.Block memory k, ImageBoardStorage.Zone memory z)
+        internal
+        pure
+    {
         uint256 c0 = z.col > k.col ? z.col : k.col;
         uint256 c1 = _min(uint256(z.col) + z.cols, uint256(k.col) + k.cols);
         uint256 r0 = z.row > k.row ? z.row : k.row;
@@ -232,7 +250,11 @@ contract ImageBoardRenderer {
         );
     }
 
-    function _blockState(ImageBoard b, uint256 blockId, ImageBoardStorage.Block memory k) internal view returns (string memory) {
+    function _blockState(ImageBoard b, uint256 blockId, ImageBoardStorage.Block memory k)
+        internal
+        view
+        returns (string memory)
+    {
         uint256 expiry = b.rentalOf(blockId).expiry;
         string memory rented = block.timestamp < expiry ? string.concat(",", _date("Rented until", expiry)) : "";
         return string.concat(
@@ -247,7 +269,9 @@ contract ImageBoardRenderer {
 
     /// @dev `rendererPage?chain=<id>&board=<address>`.
     function _page(address board) internal view returns (string memory) {
-        return string.concat(rendererPage, "?chain=", block.chainid.toString(), "&board=", LibString.toHexStringChecksummed(board));
+        return string.concat(
+            rendererPage, "?chain=", block.chainid.toString(), "&board=", LibString.toHexStringChecksummed(board)
+        );
     }
 
     function _description(string memory d) internal pure returns (string memory) {

@@ -314,7 +314,9 @@ abstract contract ImageBoardStorage is ReentrancyGuardTransient {
     /// @notice A rent listing set, or ended with a `ratePerDay` of zero.
     event RentListed(uint256 indexed blockId, address indexed owner, uint256 ratePerDay, uint256 maxDurationSecs);
     /// @param cost What the tenant paid; the protocol and the board's holder were credited their 5% each.
-    event BlockRented(uint256 indexed blockId, address indexed tenant, address indexed payer, uint256 expiry, uint256 cost);
+    event BlockRented(
+        uint256 indexed blockId, address indexed tenant, address indexed payer, uint256 expiry, uint256 cost
+    );
     event RentalExtended(uint256 indexed blockId, address indexed tenant, uint256 expiry, uint256 cost);
     /// @notice Rent streamed so far, credited to whoever owned the block while it accrued.
     event RentClaimed(uint256 indexed blockId, address indexed owner, uint256 amount);

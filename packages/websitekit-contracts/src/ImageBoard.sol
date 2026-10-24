@@ -21,7 +21,9 @@ interface IImageBoardRenderer {
 }
 
 interface IERC721Receiver {
-    function onERC721Received(address operator, address from, uint256 id, bytes calldata data) external returns (bytes4);
+    function onERC721Received(address operator, address from, uint256 id, bytes calldata data)
+        external
+        returns (bytes4);
 }
 
 /// @notice ERC-5646. Declared so its interface id is computed, never typed.
@@ -108,7 +110,9 @@ contract ImageBoard is ImageBoardStorage {
     /// @dev The protocol's cut and treasury are READ from the extension, so the two contracts that
     /// share a board's storage cannot disagree about them.
     constructor(address extension_, address renderer_)
-        ImageBoardStorage(ImageBoardExtension(extension_).protocolBps(), ImageBoardExtension(extension_).protocolTreasury())
+        ImageBoardStorage(
+            ImageBoardExtension(extension_).protocolBps(), ImageBoardExtension(extension_).protocolTreasury()
+        )
     {
         if (renderer_.code.length == 0) revert ZeroAddress();
         extension = extension_;
@@ -232,7 +236,8 @@ contract ImageBoard is ImageBoardStorage {
         }
         for (uint256 j = 0; j < i; j++) {
             Rect memory e = rects[j];
-            if (k.col < e.col + e.cols && e.col < k.col + k.cols && k.row < e.row + e.rows && e.row < k.row + k.rows) {
+            if (k.col < e.col + e.cols && e.col < k.col + k.cols && k.row < e.row + e.rows && e.row < k.row + k.rows)
+            {
                 return (CellsTaken.selector, 0);
             }
         }
@@ -453,8 +458,7 @@ contract ImageBoard is ImageBoardStorage {
         bytes32 r,
         bytes32 s
     ) external nonReentrant returns (uint256 firstId) {
-        try IERC20Permit(settlementToken).permit(msg.sender, address(this), maxTotal, deadline, v, r, s) { }
-            catch { }
+        try IERC20Permit(settlementToken).permit(msg.sender, address(this), maxTotal, deadline, v, r, s) { } catch { }
         return _buy(recipient, rects, maxTotal, deadline);
     }
 
@@ -546,7 +550,9 @@ contract ImageBoard is ImageBoardStorage {
                 uint256 wordEnd = c - lo + CELLS_PER_WORD;
                 uint256 stop = wordEnd < end ? wordEnd : end;
                 uint256 lanes = stop - c;
-                uint256 mask = lanes == CELLS_PER_WORD ? type(uint256).max : ((uint256(1) << (lanes * ID_BITS)) - 1) << (lo * ID_BITS);
+                uint256 mask = lanes == CELLS_PER_WORD
+                    ? type(uint256).max
+                    : ((uint256(1) << (lanes * ID_BITS)) - 1) << (lo * ID_BITS);
                 uint256 at = r * WORDS_PER_ROW + c / CELLS_PER_WORD;
                 _cellWords[at] = (_cellWords[at] & ~mask) | (painted & mask);
                 c = stop;
@@ -627,7 +633,10 @@ contract ImageBoard is ImageBoardStorage {
     function safeTransferFrom(address from, address to, uint256 blockId, bytes memory data) public {
         transferFrom(from, to, blockId);
         if (to.code.length != 0) {
-            if (IERC721Receiver(to).onERC721Received(msg.sender, from, blockId, data) != IERC721Receiver.onERC721Received.selector) {
+            if (
+                IERC721Receiver(to).onERC721Received(msg.sender, from, blockId, data)
+                    != IERC721Receiver.onERC721Received.selector
+            ) {
                 revert UnsafeRecipient();
             }
         }
@@ -711,7 +720,16 @@ contract ImageBoard is ImageBoardStorage {
         Rental storage t = _rentals[blockId];
         RentListing storage l = rentListing[blockId];
         return keccak256(
-            abi.encode(b.cellsLeft, b.contentHash, shownHash(blockId), t.tenant, t.expiry, listPrice[blockId], l.ratePerDay, l.maxDurationSecs)
+            abi.encode(
+                b.cellsLeft,
+                b.contentHash,
+                shownHash(blockId),
+                t.tenant,
+                t.expiry,
+                listPrice[blockId],
+                l.ratePerDay,
+                l.maxDurationSecs
+            )
         );
     }
 
@@ -906,7 +924,9 @@ contract ImageBoard is ImageBoardStorage {
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
-        return keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, DOMAIN_NAME_HASH, keccak256("1"), block.chainid, address(this)));
+        return keccak256(
+            abi.encode(EIP712_DOMAIN_TYPEHASH, DOMAIN_NAME_HASH, keccak256("1"), block.chainid, address(this))
+        );
     }
 
     function _setEditor(uint256 blockId, address editor, address grantor) internal {

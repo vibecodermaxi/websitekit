@@ -21,7 +21,9 @@ function invariantBoardConfig(address token) pure returns (ImageBoardStorage.Con
     cfg.imageHash = keccak256("img");
     cfg.sourceCid = hex"0155122000";
     cfg.name = "Invariant board";
-    cfg.terms = ImageBoardStorage.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 });
+    cfg.terms = ImageBoardStorage.Terms({
+        takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600
+    });
     cfg.zones = new ImageBoardStorage.Zone[](4);
     cfg.zones[0] = ImageBoardStorage.Zone({ col: 0, row: 0, cols: 4, rows: 3, cellPrice: 30_011 });
     cfg.zones[1] = ImageBoardStorage.Zone({ col: 6, row: 5, cols: 3, rows: 4, cellPrice: 2_003 });
@@ -30,8 +32,8 @@ function invariantBoardConfig(address token) pure returns (ImageBoardStorage.Con
     cfg.zones[3] = ImageBoardStorage.Zone({ col: 4, row: 0, cols: 2, rows: 2, cellPrice: 0 });
 }
 
-
 using ImageBoardReads for ImageBoard;
+
 /// @notice Drives one small board with random buys (many of them overlapping or out of the grid on
 /// purpose), block transfers, transfer attempts by strangers, edits, withdrawals and moves of the
 /// board's NFT between parties, and keeps its own model of the grid and of who is owed what.
@@ -229,7 +231,11 @@ contract ImageBoardHandler is Test {
         ghostHolder = seller_;
     }
 
-    function _one(uint16 col, uint16 row, uint16 cols, uint16 rows) internal pure returns (ImageBoardStorage.Rect[] memory rects) {
+    function _one(uint16 col, uint16 row, uint16 cols, uint16 rows)
+        internal
+        pure
+        returns (ImageBoardStorage.Rect[] memory rects)
+    {
         rects = new ImageBoardStorage.Rect[](1);
         rects[0] = ImageBoardStorage.Rect({ col: col, row: row, cols: cols, rows: rows });
     }
@@ -439,7 +445,9 @@ contract ImageBoardHandler is Test {
     /// A buy aimed at a cell some block already holds. Without it, a campaign with many other
     /// actions can end having never sent a buy into a taken cell, and the overlap property is then
     /// untested — "uniform picks starve state-gated actions".
-    function buyOverATakenCell(uint256 payerSeed, uint256 recipientSeed, uint256 idSeed, uint16 cols, uint16 rows) external {
+    function buyOverATakenCell(uint256 payerSeed, uint256 recipientSeed, uint256 idSeed, uint16 cols, uint16 rows)
+        external
+    {
         ghostCalls++;
         if (ghostBlocks == 0) return;
         uint256 id = idSeed % ghostBlocks + 1;
@@ -502,7 +510,9 @@ contract ImageBoardHandler is Test {
             return;
         }
         ImageBoardStorage.Rect[] memory rects = new ImageBoardStorage.Rect[](2);
-        rects[0] = ImageBoardStorage.Rect({ col: c1, row: r1, cols: uint16(1 + shapeSeed % 2), rows: uint16(1 + (shapeSeed >> 8) % 2) });
+        rects[0] = ImageBoardStorage.Rect({
+            col: c1, row: r1, cols: uint16(1 + shapeSeed % 2), rows: uint16(1 + (shapeSeed >> 8) % 2)
+        });
         bool inside = mode == 0;
         rects[1] = ImageBoardStorage.Rect({
             col: inside ? c1 : c2,
@@ -562,7 +572,8 @@ contract ImageBoardHandler is Test {
             ImageBoardStorage.Rect memory k = rects[0];
             if (rects.length == 1 && why == SHAPE && k.cols != 0 && k.rows != 0) ghostBuysOutside++;
             if (rects.length == 1 && why == COOLING) ghostBuysTaken++;
-            if (usd.balanceOf(address(board)) != b.board || board.blockCount() != b.count || _rowsDigest() != b.rows) {
+            if (usd.balanceOf(address(board)) != b.board || board.blockCount() != b.count || _rowsDigest() != b.rows)
+            {
                 violRefusedBuyChangedState++;
             }
         }
@@ -931,7 +942,9 @@ contract ImageBoardHandler is Test {
     /// Each party's credit is measured on the MODEL's idea of who it is, and the three shares are
     /// computed here, not read from `resaleSplit`. Parties can coincide (an owner who holds the
     /// board, a payer who owns the block), so the expected deltas are summed per address.
-    function _measureResale(ResaleBefore memory b, address payer, address from, uint256 price, uint256 rentDue) internal {
+    function _measureResale(ResaleBefore memory b, address payer, address from, uint256 price, uint256 rentDue)
+        internal
+    {
         uint256 cut = (price * protocolBps) / 10_000;
         uint256 royalty = (price * 500) / 10_000;
         uint256 toOwner = price - cut - royalty;
@@ -1025,7 +1038,8 @@ contract ImageBoardHandler is Test {
         // Rates that do not divide by 20, so both cuts truncate; terms either side of the bounds.
         rate = bound(rate, 0, 5_000_003);
         maxDur = (bySeed >> 16) % 7 == 0 ? 366 days : bound(maxDur, 1 hours - 1, 30 days);
-        bool ok = by == ghostOwner[id] && (rate == 0 || (_cellsLeft(id) != 0 && maxDur >= 1 hours && maxDur <= 365 days));
+        bool ok =
+            by == ghostOwner[id] && (rate == 0 || (_cellsLeft(id) != 0 && maxDur >= 1 hours && maxDur <= 365 days));
         vm.prank(by);
         try board.listForRent(id, rate, uint64(maxDur)) {
             if (!ok) violRentModelDisagrees++;
@@ -1054,7 +1068,9 @@ contract ImageBoardHandler is Test {
     /// Money moved by a rent or an extension of `cost`: the payer paid it, the board holds it, and
     /// every party's credit moved by exactly `expected`.
     function _measureRent(RentBefore memory b, address payer, uint256 cost, uint256[6] memory expected) internal {
-        if (usd.balanceOf(address(board)) - b.board != cost || b.payer - usd.balanceOf(payer) != cost) violMoneyAcrossRent++;
+        if (usd.balanceOf(address(board)) - b.board != cost || b.payer - usd.balanceOf(payer) != cost) {
+            violMoneyAcrossRent++;
+        }
         for (uint256 i = 0; i < 6; i++) {
             if (board.pendingWithdrawals(parties[i]) - b.owed[i] != expected[i]) violMoneyAcrossRent++;
         }
@@ -1078,7 +1094,9 @@ contract ImageBoardHandler is Test {
     /// Someone rents a block for an actor, naming the offered rate or (one time in four) a stale one,
     /// for a term inside the offer or (one time in five) outside it. Aimed at offered blocks; when
     /// none is, an owner offers one first. The model decides first; money is measured across.
-    function rentBlock(uint256 idSeed, uint256 payerSeed, uint256 tenantSeed, uint256 durSeed, uint256 staleSeed) external {
+    function rentBlock(uint256 idSeed, uint256 payerSeed, uint256 tenantSeed, uint256 durSeed, uint256 staleSeed)
+        external
+    {
         ghostCalls++;
         if (ghostBlocks == 0) return;
         uint256 id = idSeed % ghostBlocks + 1;
@@ -1482,7 +1500,9 @@ contract ImageBoardInvariantTest is Test {
     /// Every tenancy, rent offer and shown picture is the model's; a rental, extension or edit went
     /// through exactly when the model said; rent moved exactly what the model priced.
     function _rentalsAreTheModels() internal view {
-        assertEq(handler.violRentModelDisagrees(), 0, "a rental action went through, or was refused, against the model");
+        assertEq(
+            handler.violRentModelDisagrees(), 0, "a rental action went through, or was refused, against the model"
+        );
         assertEq(handler.violMoneyAcrossRent(), 0, "rent moved or credited the wrong amount");
         for (uint256 id = 1; id <= handler.ghostBlocks(); id++) {
             ImageBoardStorage.Rental memory t = board.rentalOf(id);
@@ -1506,7 +1526,9 @@ contract ImageBoardInvariantTest is Test {
         assertEq(handler.violResaleModelDisagrees(), 0, "a resale went through, or was refused, against the model");
         assertEq(handler.violStrangerListed(), 0, "someone other than the owner listed or delisted a block");
         assertEq(handler.violListingOutlivedOwner(), 0, "a listing survived its block changing hands");
-        assertEq(handler.violListedWithNothingLeft(), 0, "a block with no cells was listed, or one with cells refused");
+        assertEq(
+            handler.violListedWithNothingLeft(), 0, "a block with no cells was listed, or one with cells refused"
+        );
         for (uint256 id = 1; id <= handler.ghostBlocks(); id++) {
             assertEq(board.listPrice(id), handler.ghostList(id), "a listing the model does not know");
         }
@@ -1559,7 +1581,9 @@ contract ImageBoardInvariantTest is Test {
         );
         assertEq(handler.violPaidTheWrongHolder(), 0, "a sale credited someone other than the board's holder");
         assertEq(handler.violCutModelDisagrees(), 0, "a price cut went through, or was refused, against the model");
-        assertEq(board.priceBps(), handler.ghostPriceBps(), "the board's prices are not the ones the model lowered them to");
+        assertEq(
+            board.priceBps(), handler.ghostPriceBps(), "the board's prices are not the ones the model lowered them to"
+        );
         uint256 owed;
         for (uint256 i = 0; i < 6; i++) {
             address a = handler.party(i);
@@ -1571,7 +1595,11 @@ contract ImageBoardInvariantTest is Test {
             owed += board.pendingWithdrawals(a);
         }
         // Since rentals (2026-10-20): owed, plus rent paid and not yet streamed to anyone.
-        assertEq(usd.balanceOf(address(board)), owed + handler.ghostEscrow(), "the board holds other than what it owes and escrows");
+        assertEq(
+            usd.balanceOf(address(board)),
+            owed + handler.ghostEscrow(),
+            "the board holds other than what it owes and escrows"
+        );
     }
 
     function _ownersAreRecipientsAndOnlyTheyMoveBlocks() internal view {
@@ -1584,18 +1612,27 @@ contract ImageBoardInvariantTest is Test {
         // ERC-721: an id never sold has no owner to answer with.
         (bool answered,) = address(board).staticcall(abi.encodeCall(board.ownerOf, (handler.ghostBlocks() + 1)));
         assertFalse(answered, "an unsold id has an owner");
-        assertEq(boardCollection.ownerOf(board.boardTokenId()), handler.ghostHolder(), "the board moved without its holder");
+        assertEq(
+            boardCollection.ownerOf(board.boardTokenId()), handler.ghostHolder(), "the board moved without its holder"
+        );
     }
 
     /// Coverage, so a green run means the properties were exercised. Skipped on a shrink replay, or
     /// its message replaces the property failure that caused the replay.
     function afterInvariant() public view {
         if (handler.ghostCalls() < COVERAGE_MIN_CALLS) return;
-        console.log("buys ok / taken / outside", handler.ghostBuysOk(), handler.ghostBuysTaken(), handler.ghostBuysOutside());
+        console.log(
+            "buys ok / taken / outside", handler.ghostBuysOk(), handler.ghostBuysTaken(), handler.ghostBuysOutside()
+        );
         console.log("transfers / stranger tries", handler.ghostTransfers(), handler.ghostStrangerAttempts());
         console.log("edits / withdrawals       ", handler.ghostEdits(), handler.ghostWithdrawals());
         console.log("board moves / buys after  ", handler.ghostBoardMoves(), handler.ghostBuysAfterAMove());
-        console.log("listings / resales ok / stale", handler.ghostListings(), handler.ghostResalesOk(), handler.ghostResalesStale());
+        console.log(
+            "listings / resales ok / stale",
+            handler.ghostListings(),
+            handler.ghostResalesOk(),
+            handler.ghostResalesStale()
+        );
         console.log("listings ended by a gift  ", handler.ghostListingsEndedByGift());
         assertGt(handler.ghostBuysOk(), 0, "no buy ever landed");
         assertGt(handler.ghostBuysTaken(), 0, "no buy was ever refused over a sold cell");
@@ -1603,33 +1640,70 @@ contract ImageBoardInvariantTest is Test {
         assertGt(handler.ghostTransfers(), 0, "no block ever changed hands");
         assertGt(handler.ghostStrangerAttempts(), 0, "no stranger ever tried");
         assertGt(handler.ghostWithdrawals(), 0, "nothing was ever withdrawn");
-        assertGt(handler.ghostBuysAfterAMove(), 0, "no sale ever followed a move of the board - proceeds-follow-the-NFT was vacuous");
+        assertGt(
+            handler.ghostBuysAfterAMove(),
+            0,
+            "no sale ever followed a move of the board - proceeds-follow-the-NFT was vacuous"
+        );
         assertGt(handler.ghostResalesOk(), 0, "no resale ever landed");
         assertGt(handler.ghostResalesStale(), 0, "no resale ever named a stale price - the price check was vacuous");
         assertGt(handler.ghostListingsEndedByGift(), 0, "no listing was ever ended by a gift");
         console.log("buys over mixed prices    ", handler.ghostBuysMixedPrice());
         assertGt(handler.ghostBuysMixedPrice(), 0, "no buy ever straddled a zone edge - zone pricing was vacuous");
-        console.log("two-block buys ok / self-overlap", handler.ghostMultiBuysOk(), handler.ghostMultiBuysSelfOverlap());
-        console.log("cuts / refused / buys after", handler.ghostCuts(), handler.ghostCutsRefused(), handler.ghostBuysAfterACut());
+        console.log(
+            "two-block buys ok / self-overlap", handler.ghostMultiBuysOk(), handler.ghostMultiBuysSelfOverlap()
+        );
+        console.log(
+            "cuts / refused / buys after",
+            handler.ghostCuts(),
+            handler.ghostCutsRefused(),
+            handler.ghostBuysAfterACut()
+        );
         assertGt(handler.ghostMultiBuysOk(), 0, "no two-block buy ever landed");
-        assertGt(handler.ghostMultiBuysSelfOverlap(), 0, "no buy ever overlapped itself - the all-or-nothing rule was vacuous");
+        assertGt(
+            handler.ghostMultiBuysSelfOverlap(),
+            0,
+            "no buy ever overlapped itself - the all-or-nothing rule was vacuous"
+        );
         assertGt(handler.ghostCuts(), 0, "no price was ever lowered");
         assertGt(handler.ghostCutsRefused(), 0, "no cut was ever refused");
         assertGt(handler.ghostBuysAfterACut(), 0, "no buy followed a cut - the scaled price was vacuous");
-        console.log("takes / after a week / cooling", handler.ghostTakesOk(), handler.ghostTakesAfterAWeek(), handler.ghostRefusedCooling());
-        console.log("listings ended by a take / listing refused, nothing left", handler.ghostListingsEndedByTake(), handler.ghostListRefusedNothingLeft());
+        console.log(
+            "takes / after a week / cooling",
+            handler.ghostTakesOk(),
+            handler.ghostTakesAfterAWeek(),
+            handler.ghostRefusedCooling()
+        );
+        console.log(
+            "listings ended by a take / listing refused, nothing left",
+            handler.ghostListingsEndedByTake(),
+            handler.ghostListRefusedNothingLeft()
+        );
         assertGt(handler.ghostTakesOk(), 0, "no take ever landed");
         assertGt(handler.ghostTakesAfterAWeek(), 0, "no take came a week after a buy - reversion was vacuous");
         assertGt(handler.ghostRefusedCooling(), 0, "no buy was refused for a cooldown");
         console.log("refused as kept           ", handler.ghostRefusedKept());
         assertGt(handler.ghostRefusedKept(), 0, "no buy was ever refused over a kept cell");
         assertGt(handler.ghostListingsEndedByTake(), 0, "no take ever ended a listing");
-        console.log("rent offers / rentals / after a lapse", handler.ghostRentListings(), handler.ghostRentals(), handler.ghostRentalsAfterALapse());
+        console.log(
+            "rent offers / rentals / after a lapse",
+            handler.ghostRentListings(),
+            handler.ghostRentals(),
+            handler.ghostRentalsAfterALapse()
+        );
         console.log("rent refused stale / active", handler.ghostRentRefusedStale(), handler.ghostRentRefusedActive());
         console.log("extensions / refused", handler.ghostExtensions(), handler.ghostExtendRefused());
-        console.log("refunds on a take / rented changed hands", handler.ghostRefundsOnTake(), handler.ghostRentedChangedHands());
+        console.log(
+            "refunds on a take / rented changed hands",
+            handler.ghostRefundsOnTake(),
+            handler.ghostRentedChangedHands()
+        );
         console.log("claims / tenant pictures", handler.ghostRentClaims(), handler.ghostTenantPictures());
-        console.log("rent offers ended by a take / resale listings ended by a rental", handler.ghostRentListingsEndedByTake(), handler.ghostListingsEndedByRent());
+        console.log(
+            "rent offers ended by a take / resale listings ended by a rental",
+            handler.ghostRentListingsEndedByTake(),
+            handler.ghostListingsEndedByRent()
+        );
         assertGt(handler.ghostRentals(), 0, "no rental ever landed");
         assertGt(handler.ghostRentalsAfterALapse(), 0, "no block was rented again after a term lapsed");
         assertGt(handler.ghostRentRefusedStale(), 0, "no rental named a stale rate - the rate check was vacuous");
@@ -1640,8 +1714,18 @@ contract ImageBoardInvariantTest is Test {
         assertGt(handler.ghostTenantPictures(), 0, "no tenant ever set a picture");
         assertGt(handler.ghostRentListingsEndedByTake(), 0, "no take ever ended a rent offer");
         assertGt(handler.ghostListingsEndedByRent(), 0, "no rental ever ended a resale listing");
-        console.log("transfers by approved / by operator / refused", handler.ghostTransfersByApproved(), handler.ghostTransfersByOperator(), handler.ghostTransfersRefused());
-        console.log("approved tried more / pokes / refused", handler.ghostApprovedRefused(), handler.ghostPokes(), handler.ghostPokesRefused());
+        console.log(
+            "transfers by approved / by operator / refused",
+            handler.ghostTransfersByApproved(),
+            handler.ghostTransfersByOperator(),
+            handler.ghostTransfersRefused()
+        );
+        console.log(
+            "approved tried more / pokes / refused",
+            handler.ghostApprovedRefused(),
+            handler.ghostPokes(),
+            handler.ghostPokesRefused()
+        );
         assertGt(handler.ghostTransfersByApproved(), 0, "no block was ever moved by an approved address");
         assertGt(handler.ghostTransfersByOperator(), 0, "no block was ever moved by an operator");
         assertGt(handler.ghostTransfersRefused(), 0, "no unapproved transfer was ever refused");

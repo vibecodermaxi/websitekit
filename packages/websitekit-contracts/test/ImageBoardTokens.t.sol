@@ -557,7 +557,11 @@ contract ImageBoardTokensTest is ImageBoardBase {
         assertFalse(vm.keyExistsJson(json, ".image"), "no picture yet");
         assertEq(
             vm.parseJsonString(json, ".animation_url"),
-            string.concat("ipfs://bafyrendererpage/?chain=31337&board=", LibString.toHexStringChecksummed(address(board)), "&block=1")
+            string.concat(
+                "ipfs://bafyrendererpage/?chain=31337&board=",
+                LibString.toHexStringChecksummed(address(board)),
+                "&block=1"
+            )
         );
         assertEq(_trait(json, "Column"), 3);
         assertEq(_trait(json, "Row"), 2);
@@ -573,7 +577,9 @@ contract ImageBoardTokensTest is ImageBoardBase {
         vm.prank(alice);
         board.edit(id, 0x2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824);
         json = _json(board.tokenURI(id));
-        assertEq(vm.parseJsonString(json, ".image"), "ipfs://bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq");
+        assertEq(
+            vm.parseJsonString(json, ".image"), "ipfs://bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq"
+        );
     }
 
     /// During a term the block shows the tenant's picture, and says until when.
@@ -586,12 +592,18 @@ contract ImageBoardTokensTest is ImageBoardBase {
         vm.prank(tenant);
         board.editRented(id, SOURCE_HASH);
         string memory json = _json(board.tokenURI(id));
-        assertEq(vm.parseJsonString(json, ".image"), "ipfs://bafkreih6j6dzkfug4yrzqsc32dn7yzcmflwdiz3stujzm2kihmqold6oum");
+        assertEq(
+            vm.parseJsonString(json, ".image"), "ipfs://bafkreih6j6dzkfug4yrzqsc32dn7yzcmflwdiz3stujzm2kihmqold6oum"
+        );
         assertEq(_trait(json, "Rented until"), block.timestamp + 1 days);
 
         vm.warp(block.timestamp + 1 days);
         json = _json(board.tokenURI(id));
-        assertEq(vm.parseJsonString(json, ".image"), "ipfs://bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq", "the owner's again");
+        assertEq(
+            vm.parseJsonString(json, ".image"),
+            "ipfs://bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq",
+            "the owner's again"
+        );
         assertFalse(_hasTrait(json, "Rented until"));
     }
 
@@ -603,7 +615,9 @@ contract ImageBoardTokensTest is ImageBoardBase {
         assertEq(vm.parseJsonString(json, ".image"), "https://example.com/i/boards/1?v=1");
         assertEq(
             vm.parseJsonString(json, ".animation_url"),
-            string.concat("ipfs://bafyrendererpage/?chain=31337&board=", LibString.toHexStringChecksummed(address(board)))
+            string.concat(
+                "ipfs://bafyrendererpage/?chain=31337&board=", LibString.toHexStringChecksummed(address(board))
+            )
         );
         assertEq(_trait(json, "Width"), 300);
         assertEq(_trait(json, "Height"), 671);
@@ -616,7 +630,9 @@ contract ImageBoardTokensTest is ImageBoardBase {
     function test_theBoardsCollectionMetadata() public {
         string memory json = _json(board.contractURI());
         assertEq(vm.parseJsonString(json, ".name"), "Test board");
-        assertEq(vm.parseJsonString(json, ".image"), "ipfs://bafkreifbwlb5jzpwa4mcsosllrwx5d4qugzmhvhf6ydrqkj2jnog27upsa");
+        assertEq(
+            vm.parseJsonString(json, ".image"), "ipfs://bafkreifbwlb5jzpwa4mcsosllrwx5d4qugzmhvhf6ydrqkj2jnog27upsa"
+        );
 
         ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
         cfg.description = "A board with a description.";
@@ -628,7 +644,11 @@ contract ImageBoardTokensTest is ImageBoardBase {
     /// A name is the creator's and may hold anything: a reader must get back exactly what was set.
     function test_anyNameSurvivesAsJson() public {
         ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
-        string memory awkward = string(abi.encodePacked('Quote " back \\ slash / new', bytes1(0x0a), "line tab", bytes1(0x09), "ctl", bytes1(0x01), " end"));
+        string memory awkward = string(
+            abi.encodePacked(
+                'Quote " back \\ slash / new', bytes1(0x0a), "line tab", bytes1(0x09), "ctl", bytes1(0x01), " end"
+            )
+        );
         cfg.name = awkward;
         cfg.description = awkward;
         _use(_create(cfg));

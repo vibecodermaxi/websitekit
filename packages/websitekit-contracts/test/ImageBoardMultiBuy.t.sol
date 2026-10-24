@@ -7,8 +7,8 @@ import { ImageBoardStorage } from "../src/ImageBoardStorage.sol";
 import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
-
 using ImageBoardReads for ImageBoard;
+
 /// @notice Several rectangles in one buy (`IMAGE-BOARD-SPEC.md` §6, 2026-10-11): all or nothing,
 /// each rectangle its own block, each priced and cut as if bought alone, one payment.
 ///
@@ -29,13 +29,20 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
         address seller
     );
 
-    function _two(uint16[4] memory a, uint16[4] memory b) internal pure returns (ImageBoardStorage.Rect[] memory rects) {
+    function _two(uint16[4] memory a, uint16[4] memory b)
+        internal
+        pure
+        returns (ImageBoardStorage.Rect[] memory rects)
+    {
         rects = new ImageBoardStorage.Rect[](2);
         rects[0] = ImageBoardStorage.Rect({ col: a[0], row: a[1], cols: a[2], rows: a[3] });
         rects[1] = ImageBoardStorage.Rect({ col: b[0], row: b[1], cols: b[2], rows: b[3] });
     }
 
-    function _buyAll(address payer, address recipient, ImageBoardStorage.Rect[] memory rects) internal returns (uint256 firstId) {
+    function _buyAll(address payer, address recipient, ImageBoardStorage.Rect[] memory rects)
+        internal
+        returns (uint256 firstId)
+    {
         vm.prank(payer);
         firstId = board.buyBlocks(recipient, rects, type(uint256).max, block.timestamp);
     }
@@ -47,7 +54,13 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
             rows = keccak256(abi.encode(rows, board.rowBits(r)));
         }
         return keccak256(
-            abi.encode(rows, board.blockCount(), usd.balanceOf(alice), usd.balanceOf(address(board)), board.pendingWithdrawals(seller))
+            abi.encode(
+                rows,
+                board.blockCount(),
+                usd.balanceOf(alice),
+                usd.balanceOf(address(board)),
+                board.pendingWithdrawals(seller)
+            )
         );
     }
 
@@ -167,7 +180,9 @@ contract ImageBoardMultiBuyTest is ImageBoardBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 updates;
         for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].emitter == address(collection) && logs[i].topics[0] == keccak256("MetadataUpdate(uint256)")) updates++;
+            if (logs[i].emitter == address(collection) && logs[i].topics[0] == keccak256("MetadataUpdate(uint256)")) {
+                updates++;
+            }
         }
         assertEq(updates, 1);
     }

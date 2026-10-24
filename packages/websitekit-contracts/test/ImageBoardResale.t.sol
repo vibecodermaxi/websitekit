@@ -8,8 +8,8 @@ import { ImageBoardReads } from "./ImageBoardReads.sol";
 import { ImageBoardCollection } from "../src/ImageBoardCollection.sol";
 import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
-
 using ImageBoardReads for ImageBoard;
+
 /// @notice Reselling a block, whole, inside the board (`docs/IMAGE-BOARD-SPEC.md` §7a, decided
 /// 2026-10-11): each rule at its boundary. The money and ownership properties are also in the
 /// invariant suite; this file pins the edges.
@@ -334,7 +334,8 @@ contract ImageBoardResaleTest is ImageBoardBase {
         ImageBoard impl = _implementation(300, protocol);
         address[] memory tokens = new address[](1);
         tokens[0] = address(usd);
-        ImageBoardCollection c = new ImageBoardCollection("Test Image Boards", "TIMG", address(this), address(impl), tokens, "");
+        ImageBoardCollection c =
+            new ImageBoardCollection("Test Image Boards", "TIMG", address(this), address(impl), tokens, "");
         (address b,) = c.createBoardFor(seller, abi.encode(_config(300, 300, 10)));
         (uint256 cut, uint256 royalty, uint256 toOwner) = ImageBoard(b).resaleSplit(PRICE);
         assertEq(cut, 30_000); // 1,000,003 × 300 / 10,000 = 30,000.09

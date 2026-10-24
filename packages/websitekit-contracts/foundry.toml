@@ -42,6 +42,12 @@ via_ir = false
 # it is generating vectors from.
 fs_permissions = [{ access = "read-write", path = "./out" }]
 
+# GenImageGridVectors.s.sol is one long run() and outgrew forge's default of 2^30. Forge 1.8 turned
+# `isolate` on by default, running each top-level call as its own transaction, which took the
+# script from 943M gas to 1.147B (2026-10-25) and failed CI's `stable` toolchain while it still
+# passed on 1.7. 2^32 leaves room for the generator to keep growing.
+gas_limit = 4_294_967_296
+
 [fmt]
 line_length = 118
 # Matches the house style already in packages/contracts (`import { Pricing } from ...`), which has
