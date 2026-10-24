@@ -21,9 +21,10 @@ using ImageBoardReads for ImageBoard;
 ///
 ///   - `grid`   — `(width, height, cellSize)` → `(gridCols, gridRows)` or `InvalidConfig`, read off
 ///                a REAL board the collection created (or refused), not recomputed here.
-///   - `layout` — zones → the error `initialize` reverts with, or `none`, from a real
-///                `createBoardFor` on a 12×10 grid (2026-10-11). Every refusal at its boundary.
-///                (Kept squares were removed with spec §13, 2026-10-21.)
+///   - `layout` — the board's price and its zones → the error `initialize` reverts with, or `none`,
+///                from a real `createBoardFor` on a 12×10 grid (2026-10-11). Every refusal at its
+///                boundary; since kept squares (2026-10-24) a price of zero is a case too, and a
+///                board with nothing left for sale is refused.
 ///   - `terms`  — a board's five take terms → the error `initialize` reverts with (TermsLib's), or
 ///                `none`, at every clamp and one past it (2026-10-14).
 ///   - `state`  — everything the twin prices a buy against, READ off a real board at one moment:
@@ -42,7 +43,9 @@ using ImageBoardReads for ImageBoard;
 /// times — blocks taken in part, taken twice, one in its cooldown, zones (one priced near 2^150, so a twin computing in floating point fails), reversion
 /// partway and past its last week, free squares cut to 3,333 bps — and a board 256 × 600 with 130
 /// one-cell blocks and one wide block in a row, for the word and block caps at their boundaries; and
-/// a board whose reversion stops after two weeks, swept week by week past it.
+/// a board whose reversion stops after two weeks, swept week by week past it. Since kept squares
+/// (2026-10-24) the market board keeps a zone priced zero, and a board priced zero sells only two
+/// touching zones in its corner — swept while its one block cools and after.
 ///
 /// No RNG: re-running emits the same file.
 contract GenImageGridVectors is Script {
@@ -76,6 +79,7 @@ contract GenImageGridVectors is Script {
         _emitTerms();
         _emitMarket();
         _emitShortReversion();
+        _emitCorner();
         _emitCaps();
         _emitCids(renderer);
         console2.log("GenImageGridVectors: lines", lines);
@@ -203,7 +207,12 @@ contract GenImageGridVectors is Script {
     }
 
     function _layoutCase(ImageBoardStorage.Zone[] memory zones) internal {
+        _layoutCase(1, zones);
+    }
+
+    function _layoutCase(uint256 cellPrice, ImageBoardStorage.Zone[] memory zones) internal {
         ImageBoardStorage.Config memory cfg = _config(125, 104, 10);
+        cfg.cellPrice = cellPrice;
         cfg.zones = zones;
         string memory err = "none";
         try collection.createBoardFor(SELLER, abi.encode(cfg)) { }
@@ -212,7 +221,11 @@ contract GenImageGridVectors is Script {
             if (sel == ImageBoardStorage.InvalidConfig.selector) err = "InvalidConfig";
             else err = _errorName(sel);
         }
-        _write(string.concat('{"kind":"layout","zones":', _zonesJson(zones), ',"error":"', err, '"}'));
+        _write(
+            string.concat(
+                '{"kind":"layout","cellPrice":"', vm.toString(cellPrice), '","zones":', _zonesJson(zones), ',"error":"', err, '"}'
+            )
+        );
     }
 
     /// On a 12×10 grid. Each case names the boundary it sits on.
@@ -232,7 +245,7 @@ contract GenImageGridVectors is Script {
         _layoutCase(z);
         z[0] = _zone(0, 0, 1, 0, 5);
         _layoutCase(z);
-        z[0] = _zone(0, 0, 1, 1, 0); // free
+        z[0] = _zone(0, 0, 1, 1, 0); // kept
         _layoutCase(z);
         z[0] = _zone(0, 0, 1, 1, 1); // the smallest price
         _layoutCase(z);
@@ -256,6 +269,20 @@ contract GenImageGridVectors is Script {
         z[0] = _zone(0, 0, 4, 4, 5);
         z[1] = _zone(0, 4, 13, 1, 5);
         _layoutCase(z);
+
+        // Kept squares (2026-10-24): what is left for sale, at its boundary.
+        _layoutCase(0, none); // a board priced zero with no zone sells nothing
+        z = new ImageBoardStorage.Zone[](1);
+        z[0] = _zone(0, 0, 3, 3, 0);
+        _layoutCase(0, z); // nor with only a kept zone
+        z[0] = _zone(11, 9, 1, 1, 1);
+        _layoutCase(0, z); // one priced square is enough
+        z[0] = _zone(0, 0, 12, 10, 0);
+        _layoutCase(z); // a kept zone over the whole grid
+        z[0] = _zone(0, 0, 12, 9, 0);
+        _layoutCase(z); // all but the last row
+        z[0] = _zone(9, 0, 4, 1, 5);
+        _layoutCase(0, z); // a zone past the grid, on a board priced zero
     }
 
     // -----------------------------------------------------------------
@@ -339,10 +366,11 @@ contract GenImageGridVectors is Script {
     function _emitMarket() internal {
         ImageBoardStorage.Config memory cfg = _config(125, 104, 10);
         cfg.cellPrice = 7;
-        cfg.zones = new ImageBoardStorage.Zone[](3);
+        cfg.zones = new ImageBoardStorage.Zone[](4);
         cfg.zones[0] = _zone(0, 0, 4, 3, 13);
         cfg.zones[1] = _zone(6, 4, 3, 5, 3);
         cfg.zones[2] = _zone(9, 7, 3, 3, uint192(2 ** 150 + 1));
+        cfg.zones[3] = _zone(4, 0, 2, 2, 0); // kept, beside zone 0
         (address created,) = collection.createBoardFor(SELLER, abi.encode(cfg));
         ImageBoard board = ImageBoard(created);
         _fund(board, B1);
@@ -352,8 +380,10 @@ contract GenImageGridVectors is Script {
         // Nothing sold yet.
         _emitState(board);
         _emitRect(board, _rect(10, 8, 1, 1));
-        _emitRect(board, _rect(4, 0, 2, 1));
-        _emitRect(board, _rect(3, 0, 3, 1));
+        _emitRect(board, _rect(4, 0, 2, 1)); // kept
+        _emitRect(board, _rect(3, 0, 3, 1)); // one cell of zone 0, then kept
+        _emitRect(board, _rect(4, 2, 2, 1)); // just under the kept squares
+        _emitRect(board, _rect(3, 2, 3, 1)); // zone 0 into the base, under them
 
         uint256 t0 = block.timestamp;
         _buy(board, B1, 0, 4, 3, 3); // 1: P
@@ -440,6 +470,33 @@ contract GenImageGridVectors is Script {
         _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(5, 5, 0, 1))); // the second empty
         _multiCase(board, _list(_rect(7, 5, 1, 1), _rect(20, 0, 1, 1))); // both bad: the first names it
         _multiCase(board, _list(_rect(20, 0, 1, 1), _rect(7, 5, 1, 1))); // and the other way round
+        _multiCase(board, _list(_rect(0, 0, 1, 1), _rect(4, 0, 1, 1))); // the second kept
+        _multiCase(board, _list(_rect(4, 1, 1, 1), _rect(7, 5, 1, 1))); // kept, then cooling: kept names it
+        _multiCase(board, _list(_rect(7, 5, 1, 1), _rect(4, 1, 1, 1))); // and the other way round
+        _multiCase(board, _list(_rect(4, 0, 4, 6))); // one rectangle over kept squares and a cooling block
+        _multiCase(board, _list(_rect(0, 0, 2, 2), _rect(1, 0, 5, 1))); // overlapping the first, and kept
+    }
+
+    /// A board priced zero that sells only its corner: two touching priced zones, one block bought
+    /// in them. A take over the block covers priced cells only, so it is never refused as kept.
+    function _emitCorner() internal {
+        ImageBoardStorage.Config memory cfg = _config(125, 104, 10);
+        cfg.cellPrice = 0;
+        cfg.zones = new ImageBoardStorage.Zone[](2);
+        cfg.zones[0] = _zone(8, 7, 4, 3, 11);
+        cfg.zones[1] = _zone(6, 7, 2, 3, 3);
+        (address created,) = collection.createBoardFor(SELLER, abi.encode(cfg));
+        ImageBoard board = ImageBoard(created);
+        _fund(board, B1);
+        _fund(board, B2);
+        _buy(board, B1, 7, 8, 3, 1); // across both zones
+        _sweep(board, true);
+        _multiCase(board, _list(_rect(6, 7, 6, 3))); // both zones, over the cooling block
+        _multiCase(board, _list(_rect(6, 7, 1, 1), _rect(11, 9, 1, 1)));
+        _multiCase(board, _list(_rect(6, 7, 1, 1), _rect(5, 7, 1, 1))); // the second one column outside
+        vm.warp(block.timestamp + HOUR);
+        _sweep(board, false);
+        _multiCase(board, _list(_rect(6, 7, 6, 3))); // the same, now a take
     }
 
     /// The view's answer, then the same list bought for real on a snapshot: the buy must revert with
@@ -673,6 +730,7 @@ contract GenImageGridVectors is Script {
         if (err == ImageBoardStorage.EmptyBlock.selector) return "EmptyBlock";
         if (err == ImageBoardStorage.OutsideGrid.selector) return "OutsideGrid";
         if (err == ImageBoardStorage.CellsTaken.selector) return "CellsTaken";
+        if (err == ImageBoardStorage.CellsKept.selector) return "CellsKept";
         if (err == ImageBoardStorage.CoolingDown.selector) return "CoolingDown";
         if (err == ImageBoardStorage.TooLarge.selector) return "TooLarge";
         if (err == ImageBoardStorage.TooManyBlocks.selector) return "TooManyBlocks";

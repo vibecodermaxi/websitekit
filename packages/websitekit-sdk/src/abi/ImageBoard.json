@@ -2538,6 +2538,11 @@
   },
   {
     "type": "error",
+    "name": "CellsKept",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "CellsTaken",
     "inputs": []
   },

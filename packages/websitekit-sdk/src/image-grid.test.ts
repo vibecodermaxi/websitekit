@@ -13,6 +13,7 @@ import {
   gridOf,
   idAt,
   layoutProblem,
+  sellableCells,
   paint,
   quote,
   quoteBlocks,
@@ -294,11 +295,32 @@ describe('layoutProblem', () => {
 
   it('accepts the most zones the chain allows and refuses one more', () => {
     const most = Array.from({ length: MAX_ZONES }, (_, i) => zone(i));
-    expect(layoutProblem(grid, most)).toBeNull();
-    expect(layoutProblem(grid, [...most, zone(MAX_ZONES)])).toEqual({ problem: 'too-many-zones', index: MAX_ZONES });
+    expect(layoutProblem(grid, 1n, most)).toBeNull();
+    expect(layoutProblem(grid, 1n, [...most, zone(MAX_ZONES)])).toEqual({ problem: 'too-many-zones', index: MAX_ZONES });
   });
 
   it('names the zone at fault', () => {
-    expect(layoutProblem(grid, [zone(0), zone(1), zone(1)])).toEqual({ problem: 'zones-overlap', index: 2 });
+    expect(layoutProblem(grid, 1n, [zone(0), zone(1), zone(1)])).toEqual({ problem: 'zones-overlap', index: 2 });
+  });
+
+  it('refuses a board with nothing left for sale, blaming no one zone', () => {
+    expect(layoutProblem(grid, 0n, [])).toEqual({ problem: 'nothing-for-sale', index: -1 });
+    expect(layoutProblem(grid, 0n, [{ ...zone(0), cellPrice: 0n }])).toEqual({ problem: 'nothing-for-sale', index: -1 });
+    expect(layoutProblem(grid, 0n, [zone(0)])).toBeNull();
+    // A zone's own problem is named before what is left for sale.
+    expect(layoutProblem(grid, 0n, [{ ...zone(0), cols: 0 }])).toEqual({ problem: 'zone-empty', index: 0 });
+  });
+});
+
+describe('sellableCells', () => {
+  const grid = { cols: 12, rows: 10 };
+
+  it('counts priced zones, and the cells outside them unless the board is priced zero', () => {
+    const corner: Zone = { col: 8, row: 7, cols: 4, rows: 3, cellPrice: 11n };
+    const kept: Zone = { col: 0, row: 0, cols: 2, rows: 2, cellPrice: 0n };
+    expect(sellableCells(grid, 1n, [])).toBe(120);
+    expect(sellableCells(grid, 0n, [corner])).toBe(12);
+    expect(sellableCells(grid, 0n, [corner, kept])).toBe(12);
+    expect(sellableCells(grid, 1n, [corner, kept])).toBe(116);
   });
 });

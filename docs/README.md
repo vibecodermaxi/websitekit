@@ -403,29 +403,37 @@ converts; one that renders blank reads as breakage.
 ## Image boards
 
 A second kind of board, beside the page regions above: a seller uploads one picture, and buyers buy
-rectangular blocks of its square cells and put their own pictures in them. The board is one ERC-721
-token in a shared collection, minted to the seller; a block is a record on the board, moved by its
-owner as a gift or a resale at a price they set. Any sold square can also be bought from its owner,
-as a page slot can be taken: at its price times the board's take multiple, crediting the owner a
-payout, except a square the creator kept (while they own it) and one still in its cooldown. A take
-is a new block on top; the old one keeps the squares left to it. Whoever holds the board's token is
-paid for each square sold and a share of each resale and take, and may lower the price of unsold
-squares but never raise it. Squares can be priced by zone at creation, and a seller can keep areas
-for themselves. The terms of a take are chosen at creation and never change.
+rectangular blocks of its square cells and put their own pictures in them. **A board is an NFT and a
+collection.** Its own token sits in a shared Boards collection, minted to the seller; the board
+itself is an ERC-721 whose tokens are its blocks, minted at the buy, approvable and tradable
+anywhere. Metadata is built on chain and every picture is addressed by its hash on IPFS, so a board
+and its blocks work with no particular host.
+
+Any sold square can also be bought from its owner, as a page slot can be taken: at its price times
+the board's take multiple, crediting the owner a payout, except a square still in its cooldown. A
+take is a new block on top; the old one keeps its token and the squares left to it. Whoever holds
+the board's token is paid for each square sold and a share of each resale and take, and may lower
+the price of unsold squares but never raise it. Squares can be priced by zone at creation, and a
+price of zero keeps squares out of sale for good, so a seller can sell one corner of a picture and
+nothing else: nobody owns those squares, and a buy over one is refused. The terms of a take are
+chosen at creation and never change.
 
 A block's owner can also rent it out, at a daily rate up to a longest term, without selling it. The
-term is prepaid for a named tenant and streamed to whoever owns the block; 5% goes to the protocol
-and 5% to whoever holds the board. The tenant's picture is shown over the owner's until the term
-ends, by itself, and the owner's comes back. A take refunds the tenant for the squares taken; a sale
+term is prepaid for a named tenant, who is the block's ERC-4907 user, and streamed to whoever owns
+the block; 5% goes to the protocol and 5% to whoever holds the board. The tenant's picture is shown
+over the owner's until the term ends, by itself, and the owner's comes back. A take refunds the tenant for the squares taken; a sale
 of the block leaves the term running. Each board keeps the rules of the contract it was created
 from, for good: the collection can point only new boards at a later one.
 
-**On Robinhood Chain mainnet (4663) since 2026-10-21**, where boards settle in USDG, and on its
-testnet (46630). The contracts are `ImageBoard.sol` and `ImageBoardCollection.sol`, specified in
-[`IMAGE-BOARD-SPEC.md`](./IMAGE-BOARD-SPEC.md); the client is `@websitekit/sdk/image-boards`, whose
-`imageBoardDeploymentFor` refuses any chain without a deployment rather than answering with
-another's. The chain records who owns which block and the content hash each one shows; drawing the
-board's picture from those is the host's job.
+**On Robinhood Chain mainnet (4663)**, where boards settle in USDG, and on its testnet (46630). The
+contracts are `ImageBoard.sol` (the implementation every board clones), `ImageBoardExtension.sol`
+(set-up and rentals, which the board runs by delegatecall), `ImageBoardRenderer.sol` (every
+metadata string) and `ImageBoardCollection.sol`, specified in
+[`IMAGE-BOARD-SPEC.md`](./IMAGE-BOARD-SPEC.md) §13; the client is `@websitekit/sdk/image-boards`,
+whose `imageBoardDeploymentFor` refuses any chain without a deployment rather than answering with
+another's. The chain records who owns which block and the hash of the picture each one shows;
+`composeBoard` draws the board's picture from those, and a reference renderer page on IPFS draws any
+board from the chain alone.
 
 ---
 
@@ -434,9 +442,9 @@ board's picture from those is the host's job.
 **Robinhood Chain mainnet (4663)**, where boards settle in USDG, and **Robinhood Chain testnet
 (46630)**, where they settle in tUSD, a stand-in dollar anybody can mint. Both carry the same
 generation: the four core contracts and the three escrow contracts. All seven on mainnet are
-verified on Sourcify as exact matches. Image boards are two more on each chain, `ImageBoard` (the
-implementation every board clones) and `ImageBoardCollection`; on mainnet both are verified on
-Sourcify and Etherscan.
+verified on Sourcify as exact matches. Image boards are four more on each chain: the `ImageBoard`
+implementation every board clones, its extension and renderer, and `ImageBoardCollection`; on
+mainnet all four are verified on Sourcify and Etherscan.
 
 The current addresses live in
 [`packages/websitekit-sdk/src/addresses.ts`](../packages/websitekit-sdk/src/addresses.ts) and are

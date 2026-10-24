@@ -84,7 +84,8 @@ abstract contract ImageBoardStorage is ReentrancyGuardTransient {
     }
 
     /// @notice Cells priced differently from `cellPrice`. One storage word: the rectangle and a
-    /// price up to 2^192, which no settlement token's units approach.
+    /// price up to 2^192, which no settlement token's units approach. A price of zero keeps the
+    /// cells: never for sale (spec §4a).
     struct Zone {
         uint16 col;
         uint16 row;
@@ -111,6 +112,7 @@ abstract contract ImageBoardStorage is ReentrancyGuardTransient {
         uint32 height;
         /// From `MIN_CELL_SIZE` to `MAX_CELL_SIZE`.
         uint8 cellSize;
+        /// Every cell outside a zone. Zero keeps them: the board sells only its priced zones.
         uint256 cellPrice;
         /// `sha256` of the source image's bytes: what a renderer checks the fetched source against.
         bytes32 imageHash;
@@ -120,7 +122,8 @@ abstract contract ImageBoardStorage is ReentrancyGuardTransient {
         /// The board's name, 1–100 bytes, and an optional description up to 1,000.
         string name;
         string description;
-        /// Optional, may be empty: inside the grid, non-empty, non-zero price, never overlapping.
+        /// Optional, may be empty: inside the grid, non-empty, never overlapping. At least one cell
+        /// of the board must end up at a price.
         Zone[] zones;
         Terms terms;
     }
@@ -177,6 +180,7 @@ abstract contract ImageBoardStorage is ReentrancyGuardTransient {
     uint16 public gridCols;
     uint16 public gridRows;
     /// @notice The price set at creation. What a FREE square costs now is this scaled by `priceBps`.
+    /// Zero: every cell outside a priced zone is kept.
     uint256 public cellPrice;
     bytes32 public imageHash;
     bool internal _initialized;
@@ -196,7 +200,7 @@ abstract contract ImageBoardStorage is ReentrancyGuardTransient {
 
     /// @dev Block ids run from 1, so an id of zero is never a block — and a cell of zero is free.
     uint256 public blockCount;
-    /// @notice Cells no block holds.
+    /// @notice Cells no block holds and a first buy can take: a kept cell is never counted.
     uint256 public freeCells;
     mapping(uint256 => Block) internal _blocks;
     mapping(uint256 => address) internal _owners;
@@ -244,6 +248,7 @@ abstract contract ImageBoardStorage is ReentrancyGuardTransient {
     error EmptyBlock();
     error OutsideGrid();
     error CellsTaken();
+    error CellsKept();
     error CoolingDown();
     error TooLarge();
     error TooManyBlocks();

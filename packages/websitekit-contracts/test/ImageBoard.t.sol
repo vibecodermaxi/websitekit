@@ -95,7 +95,8 @@ contract ImageBoardTest is ImageBoardBase {
         collection.createBoardFor(seller, abi.encode(cfg));
     }
 
-    function test_aZeroPriceOrHashOrSellerIsRefused() public {
+    /// A board priced zero with no zone keeps every cell: nothing to sell (`ImageBoardKept.t.sol`).
+    function test_nothingForSaleOrAZeroHashOrSellerIsRefused() public {
         ImageBoardStorage.Config memory cfg = _config(300, 300, 10);
         cfg.cellPrice = 0;
         vm.expectRevert(ImageBoardStorage.InvalidConfig.selector);

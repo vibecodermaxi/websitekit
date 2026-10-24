@@ -84,11 +84,15 @@ export interface ImageBoardDeployment {
  * `https://pagemarkets.com/i/boards/`, the live view the pinned reference renderer page). The
  * collection is owned by the testnet deployer; the token is a mintable TestUSD with EIP-2612 permit.
  * All four verified on Sourcify, creation and runtime an exact match.
+ *
+ * **New boards moved to a later implementation on 2026-10-24** (`setImplementation`, squares not for
+ * sale — a price of zero keeps them, spec §13.12): a new `ImageBoard` and extension over the same
+ * renderer, both an exact match on Sourcify. Boards created before keep `0x5841…43eb` for good.
  */
 export const ROBINHOOD_TESTNET_IMAGE_BOARDS: ImageBoardDeployment = {
   chainId: 46630,
-  implementation: '0x5841eb8d22b7a2b7b04c3e4a22de06e98e9743eb',
-  extension: '0xe18433468ea18e511516e676888880ab900f7c5d',
+  implementation: '0xba57a8c62cb7d2c863ed25fdaae66da4e20adb10',
+  extension: '0xc2ac40e9008f1d7f5035ecd38ee934d8ac25ba52',
   renderer: '0x97265326cc4c568a08d7551e1b7afdd66d82643b',
   collection: '0xf9bbc1705551078bcfe61810119550331c34d0ac',
   token: '0xc87e23a0fc112a44acd392b7d5a1f296d60f1f6d',
@@ -105,11 +109,16 @@ export const ROBINHOOD_TESTNET_IMAGE_BOARDS: ImageBoardDeployment = {
  *
  * The first collection deployed over this implementation (`0x3a29…fc37`) carries collection metadata
  * that is not JSON, fixed for good; it allows no token, holds no board, and is not listed.
+ *
+ * **New boards moved to a later implementation on 2026-10-25** (`setImplementation`, squares not for
+ * sale, spec §13.12), the bytecode proved on testnet the day before: a new `ImageBoard` and extension
+ * over the same renderer, both an exact match on Sourcify and verified on Etherscan. No board was
+ * created on `0x4d56…78f3`.
  */
 export const ROBINHOOD_MAINNET_IMAGE_BOARDS: ImageBoardDeployment = {
   chainId: 4663,
-  implementation: '0x4d56d3fffc8929ab6806009a2c891f9667ef78f3',
-  extension: '0xaad974c926cf70bd1dcc3a9fdaccd1b22e0de6db',
+  implementation: '0xf78bc3a2a1312beef745d33a1e211a5d7637abc3',
+  extension: '0xa44fbed6ce1f4479020175621f60890c31546543',
   renderer: '0xc21fc880209ade51f4f90d2fd60696f7d0cba95a',
   collection: '0xce66db2d54420cf29bdf1d5c252c3b6a2b730892',
   token: '0x5fc5360d0400a0fd4f2af552add042d716f1d168',
@@ -463,7 +472,7 @@ export function readBlocks(client: PublicClient, board: Address, blockCount: num
  */
 const BLOCK_ERRORS: ReadonlyMap<string, BlockErrorName> = new Map([
   ['0x00000000', 'none'],
-  ...(['EmptyBlock', 'OutsideGrid', 'CellsTaken', 'CoolingDown', 'TooLarge', 'TooManyBlocks'] as const).map(
+  ...(['EmptyBlock', 'OutsideGrid', 'CellsTaken', 'CellsKept', 'CoolingDown', 'TooLarge', 'TooManyBlocks'] as const).map(
     (name): [string, BlockErrorName] => {
       if (!IMAGE_BOARD_ABI.some((item) => item.type === 'error' && item.name === name)) {
         throw new Error(`ImageBoard ABI has no error ${name}`);
@@ -725,13 +734,12 @@ export function buildCreateImageBoard(o: CreateImageBoardOptions): CallRequest<'
   if ('error' in gridOf(o.width, o.height, o.cellSize)) {
     throw new Error(`image board: ${o.width}×${o.height} at ${o.cellSize} px is not a grid the contract accepts`);
   }
-  if (o.cellPrice <= 0n) throw new Error('image board: the cell price must be above zero');
   if (o.imageHash.toLowerCase() === ZERO_HASH) throw new Error('image board: the image hash is required');
   const grid = gridOf(o.width, o.height, o.cellSize) as { cols: number; rows: number };
   if (imageBoardTextProblem(o.name, o.description)) throw new Error('image board: a name is 1 to 100 bytes, a description at most 1,000');
   const cid = hexToBytes(o.sourceCid);
   if (cid.length === 0 || cid.length > 64 || cid[0] !== 0x01) throw new Error('image board: the source CID must be a binary CIDv1 of at most 64 bytes');
-  const layout = layoutProblem(grid, o.zones);
+  const layout = layoutProblem(grid, o.cellPrice, o.zones);
   if (layout) throw new Error(`image board: ${layout.problem} at ${layout.index}`);
   // The contract stores a zone's price in 192 bits; a larger one would not encode.
   if (o.zones.some((z) => z.cellPrice >= 1n << 192n)) throw new Error('image board: a zone price is out of range');

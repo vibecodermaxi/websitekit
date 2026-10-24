@@ -22,10 +22,12 @@ function invariantBoardConfig(address token) pure returns (ImageBoardStorage.Con
     cfg.sourceCid = hex"0155122000";
     cfg.name = "Invariant board";
     cfg.terms = ImageBoardStorage.Terms({ takeBps: 14_000, payoutBps: 11_500, reversionBps: 9_700, maxReversionWeeks: 52, cooldownSecs: 3_600 });
-    cfg.zones = new ImageBoardStorage.Zone[](3);
+    cfg.zones = new ImageBoardStorage.Zone[](4);
     cfg.zones[0] = ImageBoardStorage.Zone({ col: 0, row: 0, cols: 4, rows: 3, cellPrice: 30_011 });
     cfg.zones[1] = ImageBoardStorage.Zone({ col: 6, row: 5, cols: 3, rows: 4, cellPrice: 2_003 });
     cfg.zones[2] = ImageBoardStorage.Zone({ col: 9, row: 7, cols: 3, rows: 2, cellPrice: 50_009 });
+    // Kept: priced zero, beside zone 0's right edge.
+    cfg.zones[3] = ImageBoardStorage.Zone({ col: 4, row: 0, cols: 2, rows: 2, cellPrice: 0 });
 }
 
 
@@ -49,8 +51,12 @@ using ImageBoardReads for ImageBoard;
 ///
 /// **Zones (2026-10-11)**: the board is made with three zones — one dearer, two cheaper. The model
 /// prices a buy CELL BY CELL from its own map (`_cellPrice`), where the contract sums overlaps per
-/// zone: two algorithms that must agree, on buys that straddle zone edges. (Kept squares were
-/// removed with spec §13, 2026-10-21.)
+/// zone: two algorithms that must agree, on buys that straddle zone edges.
+///
+/// **Kept squares (2026-10-24)**: a fourth zone is priced zero. The model refuses a buy that meets a
+/// kept cell by looking at every cell's price; the contract decides it from the zones' overlaps
+/// alone. The refusal must be `CellsKept` exactly when the model says kept — before any cooldown in
+/// the same rectangle — and a kept cell is never counted free.
 ///
 /// **Several rectangles in one buy, and lowered prices (2026-10-11)**: buys of two rectangles —
 /// sometimes overlapping each other on purpose — are decided by the model as a whole, all or
@@ -116,6 +122,7 @@ contract ImageBoardHandler is Test {
     uint256 public violWrongRecipient;
     uint256 public violMoneyAcrossBuy;
     uint256 public violRefusedBuyChangedState;
+    uint256 public violKeptWrongReason;
     uint256 public violStrangerMovedBlock;
     uint256 public violPaidTheWrongHolder;
     uint256 public violResaleModelDisagrees;
@@ -150,6 +157,7 @@ contract ImageBoardHandler is Test {
     uint256 public ghostTakesOk;
     uint256 public ghostTakesAfterAWeek;
     uint256 public ghostRefusedCooling;
+    uint256 public ghostRefusedKept;
     uint256 public ghostListingsEndedByTake;
     uint256 public ghostListRefusedNothingLeft;
     uint256 public ghostWaits;
@@ -229,6 +237,7 @@ contract ImageBoardHandler is Test {
     /// One cell's price, written out by hand. Prices do not divide by 20, so the cut rounds.
     function _cellPrice(uint256 c, uint256 r) internal pure returns (uint256) {
         if (c < 4 && r < 3) return 30_011;
+        if (c >= 4 && c < 6 && r < 2) return 0;
         if (c >= 6 && c < 9 && r >= 5 && r < 9) return 2_003;
         if (c >= 9 && r >= 7 && r < 9) return 50_009;
         return 10_003;
@@ -257,11 +266,14 @@ contract ImageBoardHandler is Test {
     }
 
     /// Why the model refuses a buy: nothing (0), its shape (1), two of its rectangles share a cell
-    /// (2), a cell in its cooldown (4).
+    /// (2), a cell in its cooldown (4), a kept cell (8).
     uint8 internal constant OK = 0;
     uint8 internal constant SHAPE = 1;
     uint8 internal constant SELF = 2;
     uint8 internal constant COOLING = 4;
+    uint8 internal constant KEPT = 8;
+    /// The kept zone's cells: never free, never sold.
+    uint256 public constant KEPT_CELLS = 4;
 
     /// A sold block's floor level now: its level, cut by 3% per whole week since it was bought (at
     /// most 52 weeks, truncating each week), never below the creation price.
@@ -280,6 +292,12 @@ contract ImageBoardHandler is Test {
     function _modelPlan(ImageBoardStorage.Rect memory k) internal view returns (uint8 why, Plan memory p) {
         if (k.cols == 0 || k.rows == 0) return (SHAPE, p);
         if (uint256(k.col) + k.cols > COLS || uint256(k.row) + k.rows > ROWS) return (SHAPE, p);
+        // Kept anywhere in the rectangle refuses it before any covered block is asked.
+        for (uint256 r = k.row; r < uint256(k.row) + k.rows; r++) {
+            for (uint256 c = k.col; c < uint256(k.col) + k.cols; c++) {
+                if (_cellPrice(c, r) == 0) return (KEPT, p);
+            }
+        }
         p.parts = new Part[](uint256(k.cols) * k.rows);
         uint256 first = _cellPrice(k.col, k.row);
         for (uint256 r = k.row; r < uint256(k.row) + k.rows; r++) {
@@ -439,15 +457,17 @@ contract ImageBoardHandler is Test {
         external
     {
         ghostCalls++;
-        uint16[2][6] memory starts = [
-            [uint16(3), 0], // zone 0's right edge
+        uint16[2][8] memory starts = [
+            [uint16(3), 0], // zone 0's right edge, into the kept squares
             [uint16(0), 2], // zone 0's bottom edge
             [uint16(5), 5], // zone 1's left edge
             [uint16(6), 4], // zone 1's top edge
             [uint16(8), 7], // zone 1 into zone 2
-            [uint16(9), 6] // zone 2's top edge
+            [uint16(9), 6], // zone 2's top edge
+            [uint16(3), 2], // zone 0's corner, just under the kept squares
+            [uint16(6), 0] // just right of the kept squares
         ];
-        uint16[2] memory at = starts[edgeSeed % 6];
+        uint16[2] memory at = starts[edgeSeed % 8];
         _tryBuy(payerSeed, recipientSeed, at[0], at[1], uint16(bound(cols, 2, 3)), uint16(bound(rows, 2, 3)));
     }
 
@@ -493,12 +513,15 @@ contract ImageBoardHandler is Test {
         _tryBuyAll(payerSeed, recipientSeed, rects);
     }
 
-    /// The first free cell at or after `seed`'s cell, reading row by row and wrapping.
+    /// The first free cell at or after `seed`'s cell, reading row by row and wrapping. Kept cells are
+    /// not free: a pair aimed at one would only ever be refused.
     function _freeCellFrom(uint256 seed) internal view returns (uint16 col, uint16 row, bool found) {
         uint256 cells = uint256(COLS) * ROWS;
         for (uint256 i = 0; i < cells; i++) {
             uint256 at = (seed % cells + i) % cells;
-            if (ghostCell[at % COLS][at / COLS] == 0) return (uint16(at % COLS), uint16(at / COLS), true);
+            uint256 c = at % COLS;
+            uint256 r = at / COLS;
+            if (ghostCell[c][r] == 0 && _cellPrice(c, r) != 0) return (uint16(c), uint16(r), true);
         }
     }
 
@@ -528,9 +551,12 @@ contract ImageBoardHandler is Test {
                 return;
             }
             _landed(rects, plans, first, recipient, payer, b, owedBefore);
-        } catch {
+        } catch (bytes memory reason) {
             if (why == OK) violRefusedWhatModelAccepted++;
             if (why == SELF) ghostMultiBuysSelfOverlap++;
+            if (why == KEPT) ghostRefusedKept++;
+            // Both ways round: kept is the refusal exactly when the model says kept.
+            if ((why == KEPT) != (bytes4(reason) == ImageBoardStorage.CellsKept.selector)) violKeptWrongReason++;
             if (why == COOLING) ghostRefusedCooling++;
             // Counted for single rectangles only: a pair's refusal may be either rectangle's.
             ImageBoardStorage.Rect memory k = rects[0];
@@ -1493,6 +1519,7 @@ contract ImageBoardInvariantTest is Test {
         assertEq(handler.violAcceptedWhatModelRefused(), 0, "the board sold cells the model refuses");
         assertEq(handler.violRefusedWhatModelAccepted(), 0, "the board refused a buy the model accepts");
         assertEq(handler.violRefusedBuyChangedState(), 0, "a refused buy changed state");
+        assertEq(handler.violKeptWrongReason(), 0, "a buy was refused as kept, or not, against the model");
 
         for (uint256 r = 0; r < handler.ROWS() + 2; r++) {
             uint256[] memory words = board.cellRow(r);
@@ -1504,7 +1531,7 @@ contract ImageBoardInvariantTest is Test {
             }
             assertEq(board.rowBits(r), bits, "rowBits is not the map's");
         }
-        uint256 free = uint256(handler.COLS()) * handler.ROWS();
+        uint256 free = uint256(handler.COLS()) * handler.ROWS() - handler.KEPT_CELLS();
         for (uint256 id = 1; id <= handler.ghostBlocks(); id++) {
             ImageBoardStorage.Block memory b = board.blockOf(id);
             uint16[4] memory s = handler.shape(id);
@@ -1594,6 +1621,8 @@ contract ImageBoardInvariantTest is Test {
         assertGt(handler.ghostTakesOk(), 0, "no take ever landed");
         assertGt(handler.ghostTakesAfterAWeek(), 0, "no take came a week after a buy - reversion was vacuous");
         assertGt(handler.ghostRefusedCooling(), 0, "no buy was refused for a cooldown");
+        console.log("refused as kept           ", handler.ghostRefusedKept());
+        assertGt(handler.ghostRefusedKept(), 0, "no buy was ever refused over a kept cell");
         assertGt(handler.ghostListingsEndedByTake(), 0, "no take ever ended a listing");
         console.log("rent offers / rentals / after a lapse", handler.ghostRentListings(), handler.ghostRentals(), handler.ghostRentalsAfterALapse());
         console.log("rent refused stale / active", handler.ghostRentRefusedStale(), handler.ghostRentRefusedActive());

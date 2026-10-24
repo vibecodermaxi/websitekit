@@ -14,8 +14,9 @@
  * this is its preview.
  *
  * **Any cell can be bought** (2026-10-14, spec §11): free, or held by a block, which a buy then
- * takes — except a block's still in its cooldown. (Kept squares were removed with spec §13,
- * 2026-10-21.)
+ * takes — except a block's still in its cooldown, and a kept cell. **A cell is kept when its
+ * creation price is zero** (2026-10-24, spec §4a): a zone priced zero, or the board's own price of
+ * zero outside every zone. Kept is for good — never sold first-hand, so never held, so never taken.
  * What a sold cell costs moves with time (reversion is weekly), so every price here takes `now`,
  * in seconds, as the chain's clock would read it.
  *
@@ -70,7 +71,7 @@ export interface Rect {
   rows: number;
 }
 
-/** Cells priced differently from the board's `cellPrice`, in the settlement token's units. */
+/** Cells priced differently from the board's `cellPrice`, in the settlement token's units. Zero keeps them. */
 export interface Zone extends Rect {
   cellPrice: bigint;
 }
@@ -81,6 +82,7 @@ export type BlockErrorName =
   | 'EmptyBlock'
   | 'OutsideGrid'
   | 'CellsTaken'
+  | 'CellsKept'
   | 'CoolingDown'
   | 'TooLarge'
   | 'TooManyBlocks';
@@ -109,6 +111,7 @@ export type CellMap = Uint32Array;
 /** Everything a buy is checked and priced against. */
 export interface GridState {
   grid: Grid;
+  /** Every cell outside a zone. Zero keeps them: the board sells only its priced zones. */
   cellPrice: bigint;
   /** Required, `[]` for none: leaving them out would price a board at a price it does not charge. */
   zones: readonly Zone[];
@@ -239,12 +242,17 @@ function pricesOf(state: GridState, k: Rect): bigint[] {
 
 /**
  * The contract's `_survey`: the rectangle's cells tallied by the block holding them, each at its
- * creation price. A block met for the first time is checked, in this order — the buy's block cap,
- * cooling down — and its floor level read; the first refusal ends the survey.
+ * creation price. A kept cell anywhere refuses the rectangle before any block is asked. Then a
+ * block met for the first time is checked, in this order — the buy's block cap, cooling down — and
+ * its floor level read; the first refusal ends the survey.
+ *
+ * The contract works kept out from the zones' overlaps; this looks at every cell's price. Two ways
+ * to the same answer, which the vectors hold to each other.
  */
 function survey(state: GridState, k: Rect, now: bigint, takenSoFar: number): Survey {
   const v: Survey = { error: 'none', base: 0n, freeBase: 0n, free: 0, parts: [] };
   const prices = pricesOf(state, k);
+  if (prices.includes(0n)) return { ...v, error: 'CellsKept' };
   const seen = new Map<number, number>();
   for (let r = k.row; r < k.row + k.rows; r++) {
     for (let c = k.col; c < k.col + k.cols; c++) {
@@ -389,7 +397,7 @@ export function termsError(t: TakeTerms, protocolBps: number): TermsError | null
   return null;
 }
 
-/** What one FREE square costs now, at the board's price or a zone's: rounded up, as one. */
+/** What one FREE square costs now, at the board's price or a zone's: rounded up, as one. Zero is a kept square. */
 export function squarePrice(cellPrice: bigint, priceBps: number): bigint {
   return (cellPrice * BigInt(priceBps) + 9_999n) / 10_000n;
 }
@@ -399,28 +407,48 @@ function maskOf(col: number, cols: number): bigint {
   return ((1n << BigInt(cols)) - 1n) << BigInt(col);
 }
 
-/** Why a set of zones would be refused at creation, naming which one. */
-export type LayoutProblem = 'too-many-zones' | 'zone-price' | 'zone-empty' | 'zone-outside' | 'zones-overlap';
+/** Why a board's prices and zones would be refused at creation, naming which zone. */
+export type LayoutProblem = 'too-many-zones' | 'zone-empty' | 'zone-outside' | 'zones-overlap' | 'nothing-for-sale';
 
 /** The error the contract's `initialize` reverts with for each, which the vectors pin. */
 export const LAYOUT_ERROR: Record<LayoutProblem, 'InvalidConfig'> = {
   'too-many-zones': 'InvalidConfig',
-  'zone-price': 'InvalidConfig',
   'zone-empty': 'InvalidConfig',
   'zone-outside': 'InvalidConfig',
   'zones-overlap': 'InvalidConfig',
+  'nothing-for-sale': 'InvalidConfig',
 };
 
 /**
- * The contract's checks on a new board's zones, in its order: the count, then each zone (price and
- * size, then the grid, then the zones before it). `index` is the zone's place in its list; null
- * means the contract would accept them.
+ * How many cells a first buy can take on a board made with these prices: each priced zone's, and
+ * every cell outside the zones unless the board's own price is zero. The zones must already be
+ * accepted by `layoutProblem` (inside the grid, never overlapping), as the contract counts after
+ * checking them.
  */
-export function layoutProblem(grid: Grid, zones: readonly Zone[]): { problem: LayoutProblem; index: number } | null {
+export function sellableCells(grid: Grid, cellPrice: bigint, zones: readonly Zone[]): number {
+  let outside = grid.cols * grid.rows;
+  let sellable = 0;
+  for (const z of zones) {
+    outside -= z.cols * z.rows;
+    if (z.cellPrice !== 0n) sellable += z.cols * z.rows;
+  }
+  return cellPrice !== 0n ? sellable + outside : sellable;
+}
+
+/**
+ * The contract's checks on a new board's prices, in its order: the count of zones, then each zone
+ * (its size, then the grid, then the zones before it), then whether anything is left for sale.
+ * `index` is the zone's place in its list, `-1` when no one zone is to blame; null means the
+ * contract would accept them. A price of zero is not refused anywhere: it keeps cells.
+ */
+export function layoutProblem(
+  grid: Grid,
+  cellPrice: bigint,
+  zones: readonly Zone[],
+): { problem: LayoutProblem; index: number } | null {
   if (zones.length > MAX_ZONES) return { problem: 'too-many-zones', index: MAX_ZONES };
   const covered = new Map<number, bigint>();
   for (const [index, z] of zones.entries()) {
-    if (z.cellPrice <= 0n) return { problem: 'zone-price', index };
     if (z.cols === 0 || z.rows === 0) return { problem: 'zone-empty', index };
     if (z.col + z.cols > grid.cols || z.row + z.rows > grid.rows) return { problem: 'zone-outside', index };
     const mask = maskOf(z.col, z.cols);
@@ -429,5 +457,6 @@ export function layoutProblem(grid: Grid, zones: readonly Zone[]): { problem: La
       covered.set(r, (covered.get(r) ?? 0n) | mask);
     }
   }
+  if (sellableCells(grid, cellPrice, zones) === 0) return { problem: 'nothing-for-sale', index: -1 };
   return null;
 }

@@ -680,7 +680,7 @@ export interface BuildCreateSiteOptions {
 }
 
 /** The v2 `SiteConfig` struct, in the contract's field order. */
-interface SiteConfigTuple {
+export interface SiteConfigTuple {
   name: string;
   symbol: string;
   baseTokenURI: string;
@@ -703,6 +703,9 @@ interface SiteConfigTuple {
   royaltyBps: bigint;
 }
 
+/** A site's set-up without the call that deploys it. */
+export type SiteConfigOptions = Omit<BuildCreateSiteOptions, 'factory' | 'owner'>;
+
 /**
  * Builds `createSite` or `createSiteFor`.
  *
@@ -717,6 +720,30 @@ export function buildCreateSite(
 ):
   | CallRequest<'createSite', [SiteConfigTuple, Hex[], bigint[]]>
   | CallRequest<'createSiteFor', [Address, SiteConfigTuple, Hex[], bigint[]]> {
+  const { config, keys, floors } = siteConfigOf(options);
+
+  if (options.owner) {
+    return {
+      address: options.factory,
+      abi: SLOT_FACTORY_ABI,
+      functionName: 'createSiteFor',
+      args: [options.owner, config, keys, floors],
+    };
+  }
+
+  return {
+    address: options.factory,
+    abi: SLOT_FACTORY_ABI,
+    functionName: 'createSite',
+    args: [config, keys, floors],
+  };
+}
+
+/**
+ * The `SiteConfig` struct and the slots' keys and floors, checked against the contract's clamps —
+ * the one implementation behind `buildCreateSite`.
+ */
+export function siteConfigOf(options: SiteConfigOptions): { config: SiteConfigTuple; keys: Hex[]; floors: bigint[] } {
   const { economics, rentals, floorPolicy, slots = {}, royaltyBps = 0n } = options;
   const openRegistration = options.openRegistration ?? false;
   const pinTreasury = options.pinTreasury ?? false;
@@ -750,22 +777,7 @@ export function buildCreateSite(
     pinTreasury,
     royaltyBps,
   };
-
-  if (options.owner) {
-    return {
-      address: options.factory,
-      abi: SLOT_FACTORY_ABI,
-      functionName: 'createSiteFor',
-      args: [options.owner, config, keys, floors],
-    };
-  }
-
-  return {
-    address: options.factory,
-    abi: SLOT_FACTORY_ABI,
-    functionName: 'createSite',
-    args: [config, keys, floors],
-  };
+  return { config, keys, floors };
 }
 
 export class InvalidEconomicsError extends Error {
@@ -789,7 +801,7 @@ const ONE_YEAR = 31_536_000n;
  * not depend on them, which is where the mistakes actually are.
  */
 function assertSiteConfig(
-  options: BuildCreateSiteOptions,
+  options: SiteConfigOptions,
   openRegistration: boolean,
   defaultFloor: bigint,
   royaltyBps: bigint,

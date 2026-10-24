@@ -7,7 +7,8 @@
  * is the other end.
  *
  * **What the fixture pins**: grid derivation for 28 image sizes, at both ends of the cell-size range
- * (2026-10-20) and both grid limits; `layoutProblem` against what `initialize` refused for 14 sets of zones;
+ * (2026-10-20) and both grid limits; `layoutProblem` against what `initialize` refused for 20 boards' prices
+ * and zones (a price of zero among them, and boards with nothing left for sale, since 2026-10-24);
  * `termsError` against what it refused for 19 sets of terms, at every clamp and one past it. Since
  * takeovers (2026-10-14): `blockError` and `quote` for every rectangle of nine shapes at every origin
  * (one past the grid in the first sweep) on a board with zones (one priced near 2^150), a block given
@@ -15,12 +16,14 @@
  * blocks cooling, a week into reversion, and with free squares cut to 3,333 bps and every block past
  * its last week (one bought at the cut, its level under 10,000) — and the word and block caps at
  * their boundaries on a 256 × 600 board; a board whose reversion stops at two weeks, week by week past
- * it; `buyError` and `quoteBlocks` for 23 lists (the caps counted across rectangles, a block in two), each also bought
+ * it; `buyError` and `quoteBlocks` for 32 lists (the caps counted across rectangles, a block in two), each also bought
  * for real by the generator, which asserts the buy refused with the same error or pulled the quote.
  * The cell map is decoded by `cellMapOf` from the words `cellRow` returned, and on every state
  * `cellMapFromBlocks` must paint the same map from the blocks' rectangles alone. Since spec §13
  * (2026-10-21): the IPFS addresses the renderer writes for ten hashes and binary CIDs, against
- * `contentHashToCid` and `cidBytesToString`. Kept squares were removed from both ends.
+ * `contentHashToCid` and `cidBytesToString`. Since kept squares (2026-10-24): the market board keeps a
+ * zone priced zero, so every sweep meets it beside zone 0 and in shapes over cooling blocks, and a
+ * board priced zero selling two touching zones is swept with its one block cooling and after.
  *
  * **What it does not**: the zone ceiling (512 zones, asserted in `image-grid.test.ts` and the
  * contract's own suite), overflow (asserted in `image-grid.test.ts`), and any board shape outside
@@ -66,7 +69,7 @@ type RectJson = [number, number, number, number];
 
 type Line =
   | { kind: 'grid'; width: number; height: number; cellSize: number; gridCols?: number; gridRows?: number; error: string }
-  | { kind: 'layout'; zones: ZoneJson[]; error: string }
+  | { kind: 'layout'; cellPrice: string; zones: ZoneJson[]; error: string }
   | ({ kind: 'terms'; error: string } & TakeTerms)
   | {
       kind: 'state';
@@ -126,9 +129,9 @@ describe.skipIf(!hasForge)('the grid rule agrees with ImageBoard.sol', () => {
 
   it('has vectors for every outcome, so agreement is not vacuous', () => {
     expect(of('grid').length).toBeGreaterThanOrEqual(19);
-    expect(of('state').length).toBe(10);
+    expect(of('state').length).toBe(12);
     const answers = [...of('rect'), ...of('multi')];
-    for (const name of ['none', 'EmptyBlock', 'OutsideGrid', 'CellsTaken', 'CoolingDown', 'TooLarge', 'TooManyBlocks'] as const) {
+    for (const name of ['none', 'EmptyBlock', 'OutsideGrid', 'CellsTaken', 'CellsKept', 'CoolingDown', 'TooLarge', 'TooManyBlocks'] as const) {
       expect(answers.filter((l) => l.error === name).length, name).toBeGreaterThan(0);
     }
   });
@@ -159,15 +162,15 @@ describe.skipIf(!hasForge)('the grid rule agrees with ImageBoard.sol', () => {
     expect(checked).toBeGreaterThan(0);
   });
 
-  it('refuses the same zones, with the same error', () => {
+  it('refuses the same prices and zones, with the same error', () => {
     const layouts = of('layout');
-    expect(layouts.length).toBeGreaterThanOrEqual(14);
+    expect(layouts.length).toBeGreaterThanOrEqual(20);
     for (const name of ['none', 'InvalidConfig']) {
       expect(layouts.some((l) => l.error === name), name).toBe(true);
     }
     const grid = { cols: 12, rows: 10 };
     for (const line of layouts) {
-      const found = layoutProblem(grid, line.zones.map(zoneOf));
+      const found = layoutProblem(grid, BigInt(line.cellPrice), line.zones.map(zoneOf));
       expect(found ? LAYOUT_ERROR[found.problem] : 'none', JSON.stringify(line)).toBe(line.error);
     }
   });

@@ -45,7 +45,7 @@ contract ImageBoardExtension is ImageBoardStorage {
         Config memory cfg = abi.decode(config, (Config));
         if (cfg.settlementToken == address(0)) revert ZeroAddress();
         if (cfg.cellSize < MIN_CELL_SIZE || cfg.cellSize > MAX_CELL_SIZE) revert InvalidConfig();
-        if (cfg.cellPrice == 0 || cfg.imageHash == bytes32(0)) revert InvalidConfig();
+        if (cfg.imageHash == bytes32(0)) revert InvalidConfig();
         // Lengths only: the renderer escapes whatever is here, and nothing reads it as UTF-8.
         if (bytes(cfg.name).length == 0 || bytes(cfg.name).length > 100) revert InvalidConfig();
         if (bytes(cfg.description).length > 1_000) revert InvalidConfig();
@@ -82,30 +82,42 @@ contract ImageBoardExtension is ImageBoardStorage {
         reversionBps = uint16(t.reversionBps);
         maxReversionWeeks = uint8(t.maxReversionWeeks);
         cooldownSecs = uint32(t.cooldownSecs);
-        freeCells = cols * rows;
 
         emit BoardInitialized(msg.sender, boardTokenId_, cfg.settlementToken, uint16(cols), uint16(rows), cfg.cellPrice);
 
-        _setZones(cfg.zones, rows);
+        // A board that keeps every cell has nothing to sell.
+        uint256 sellable = _setZones(cfg.zones, rows, cols * rows, cfg.cellPrice);
+        if (sellable == 0) revert InvalidConfig();
+        freeCells = sellable;
     }
 
     /// @dev Overlap is checked on a bitmap in memory, one word per row, so it costs the zones' rows
-    /// rather than every pair of zones.
-    function _setZones(Zone[] memory given, uint256 rows) internal {
+    /// rather than every pair of zones. Returns the cells a first buy can take: each priced zone's,
+    /// and the cells outside every zone unless the board's own price is zero. Zones never overlap and
+    /// stay inside the grid, so their areas add up to at most the grid's.
+    function _setZones(Zone[] memory given, uint256 rows, uint256 cells, uint256 basePrice)
+        internal
+        returns (uint256 sellable)
+    {
         if (given.length > MAX_ZONES) revert InvalidConfig();
         uint256[] memory covered = new uint256[](rows);
+        uint256 outside = cells;
         for (uint256 i = 0; i < given.length; i++) {
             Zone memory z = given[i];
-            if (z.cellPrice == 0 || z.cols == 0 || z.rows == 0) revert InvalidConfig();
+            if (z.cols == 0 || z.rows == 0) revert InvalidConfig();
             if (uint256(z.col) + z.cols > gridCols || uint256(z.row) + z.rows > gridRows) revert InvalidConfig();
             uint256 mask = _mask(z.col, z.cols);
             for (uint256 r = z.row; r < uint256(z.row) + z.rows; r++) {
                 if (covered[r] & mask != 0) revert InvalidConfig();
                 covered[r] |= mask;
             }
+            uint256 area = uint256(z.cols) * z.rows;
+            outside -= area;
+            if (z.cellPrice != 0) sellable += area;
             _zones.push(z);
             emit ZoneSet(i, z.col, z.row, z.cols, z.rows, z.cellPrice);
         }
+        if (basePrice != 0) sellable += outside;
     }
 
     function _mask(uint16 col, uint16 cols) internal pure returns (uint256) {

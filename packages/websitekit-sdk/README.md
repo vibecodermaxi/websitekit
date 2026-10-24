@@ -79,7 +79,10 @@ with metadata built on chain (`readBlockTokenURI`) and pictures addressed by the
 (`contentHashToCid`). Any cell can be bought, sold or not: a buy over another block's cells takes
 them at that block's price times the board's take multiple, and credits its owner — as a page slot
 is taken — except one bought in the last cooldown. The covered block keeps its token and the cells
-it has left. Spec: [`docs/IMAGE-BOARD-SPEC.md`](../../docs/IMAGE-BOARD-SPEC.md) §13.
+it has left. **A price of zero keeps squares out of sale for good** — the board's own price outside
+every zone, or a zone's — so a seller can sell one corner of a picture and nothing else: no block
+holds those squares, a buy over one is refused (`CellsKept`), and `sellableCells` counts what is for
+sale. Spec: [`docs/IMAGE-BOARD-SPEC.md`](../../docs/IMAGE-BOARD-SPEC.md) §13.
 
 **This generation is on Robinhood Chain mainnet (4663), settling in USDG, and on its testnet
 (46630).** `imageBoardDeploymentFor` throws for any other chain; the earlier generation answers a
@@ -145,10 +148,11 @@ encodes the set-up as bytes the collection does not read (`IMAGE_BOARD_CONFIG_PA
 implementation may take a different one. A square is any whole size from `MIN_CELL_SIZE` (10 px) to
 `MAX_CELL_SIZE` (200 px). One buy may take cells from at most `MAX_BLOCKS_TAKEN_PER_BUY` (88) blocks.
 
-**What the chain does not do:** draw the picture. A block stores a content hash; composing the
-board's picture from its blocks, and serving the collection's token metadata, is the job of whoever
-hosts the board. A board created straight through the collection gets its NFT, but its metadata is
-only as good as that host's support for it.
+**What the chain does not do:** draw the picture. A block stores the hash of its picture, and the
+metadata is built on chain by the renderer; composing the board's picture from its blocks is a
+renderer's job — `composeBoard`, or the reference renderer page on IPFS, which draws any board from
+the chain alone. A board token's thumbnail is served from the deployment's `thumbnailBase`, fixed in
+its renderer.
 
 ## Three rules worth knowing up front
 

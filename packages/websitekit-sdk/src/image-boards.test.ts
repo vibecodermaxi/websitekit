@@ -104,8 +104,17 @@ describe('buildCreateImageBoard', () => {
     // Any whole size in the range, not only the three a set-up screen offers (2026-10-20).
     expect(configOf(roundTrip(buildCreateImageBoard(createOptions({ cellSize: 12 }))))).toMatchObject({ cellSize: 12 });
     expect(() => buildCreateImageBoard(createOptions({ height: 10_010 }))).toThrow(/grid/);
-    expect(() => buildCreateImageBoard(createOptions({ cellPrice: 0n }))).toThrow(/price/);
+    // Priced zero with no priced zone keeps every square: nothing for sale (2026-10-24).
+    expect(() => buildCreateImageBoard(createOptions({ cellPrice: 0n }))).toThrow(/nothing-for-sale/);
     expect(() => buildCreateImageBoard(createOptions({ imageHash: `0x${'0'.repeat(64)}` as Hex }))).toThrow(/hash/);
+  });
+
+  it('carries a board priced zero that sells only its zones, and a kept zone', () => {
+    const zones = [
+      { col: 0, row: 0, cols: 4, rows: 3, cellPrice: 30_011n },
+      { col: 4, row: 0, cols: 2, rows: 2, cellPrice: 0n },
+    ];
+    expect(configOf(roundTrip(buildCreateImageBoard(createOptions({ cellPrice: 0n, zones }))))).toMatchObject({ cellPrice: 0n, zones });
   });
 
   it('carries the zones, the name, the description and the source CID through the ABI', () => {

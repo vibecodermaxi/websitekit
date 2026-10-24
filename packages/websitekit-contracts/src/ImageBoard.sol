@@ -69,6 +69,9 @@ interface IERC5646 {
 /// **Prices can differ by position** (decided 2026-10-11). By default every cell costs `cellPrice`.
 /// A seller may draw zones at creation, each with its own price per cell; zones never overlap, so a
 /// cell has exactly one creation price, and it is what that cell's take price is built on too.
+/// **A price of zero keeps a cell** (2026-10-24): never for sale, first-hand or by a take, for good.
+/// A zone at zero keeps an area of a priced board; a board priced zero sells only its priced zones.
+/// Nothing is minted or written per kept cell — a buy refuses one from the zones alone.
 ///
 /// The grid is fixed at creation: `gridCols = width / cellSize`, `gridRows = height / cellSize`,
 /// counted from the top-left. The strip a whole cell does not fit is not for sale. Which block holds
@@ -240,10 +243,14 @@ contract ImageBoard is ImageBoardStorage {
     }
 
     /// @dev Walks the rectangle row by row and tallies its cells by the block that holds them, each
-    /// cell at its creation price. Stops at the first covered block that refuses: cooling down, or one
-    /// past the buy's block cap.
+    /// cell at its creation price. Refuses a rectangle with a kept cell before walking it; then stops
+    /// at the first covered block that refuses: cooling down, or one past the buy's block cap.
     function _survey(Rect memory k, Scratch memory s, uint256 takenSoFar) internal view returns (Survey memory v) {
-        uint256[] memory prices = _pricesOf(k, s.zones);
+        (uint256[] memory prices, bool kept) = _pricesOf(k, s.zones);
+        if (kept) {
+            v.err = CellsKept.selector;
+            return v;
+        }
         Run memory run = Run({ id: type(uint256).max, base: 0, cells: 0, takenSoFar: takenSoFar });
         for (uint256 r = k.row; r < uint256(k.row) + k.rows; r++) {
             _scanRow(v, s, run, prices, k, r);
@@ -264,29 +271,42 @@ contract ImageBoard is ImageBoardStorage {
     /// paints only its overlap, and zones never overlap, so this costs the rectangle's cells plus the
     /// board's zones — never cells times zones, which a tall rectangle under many zones would make
     /// larger than a transaction.
-    function _pricesOf(Rect memory k, Zone[] memory zs) internal view returns (uint256[] memory prices) {
-        prices = new uint256[](uint256(k.cols) * k.rows);
+    ///
+    /// `kept` is whether any cell's price is zero, worked out from the zones rather than the cells:
+    /// a zero-priced zone meets the rectangle, or the board's own price is zero and the priced zones
+    /// do not cover all of it (zones never overlap, so their overlaps add up to what they cover).
+    function _pricesOf(Rect memory k, Zone[] memory zs) internal view returns (uint256[] memory prices, bool kept) {
+        uint256 cells = uint256(k.cols) * k.rows;
+        prices = new uint256[](cells);
         uint256 price = cellPrice;
-        for (uint256 i = 0; i < prices.length; i++) {
+        for (uint256 i = 0; i < cells; i++) {
             prices[i] = price;
         }
+        uint256 priced;
         for (uint256 i = 0; i < zs.length; i++) {
-            _paintZone(prices, k, zs[i]);
+            uint256 met = _paintZone(prices, k, zs[i]);
+            if (met == 0) continue;
+            if (zs[i].cellPrice == 0) kept = true;
+            else priced += met;
         }
+        if (price == 0 && priced < cells) kept = true;
     }
 
-    /// @dev Writes one zone's price over its overlap with the rectangle, if any.
-    function _paintZone(uint256[] memory prices, Rect memory k, Zone memory z) internal pure {
+    /// @dev Writes one zone's price over its overlap with the rectangle and returns how many cells
+    /// that is.
+    function _paintZone(uint256[] memory prices, Rect memory k, Zone memory z) internal pure returns (uint256 met) {
         uint256 c0 = z.col > k.col ? z.col : k.col;
         uint256 c1 = _min(uint256(z.col) + z.cols, uint256(k.col) + k.cols);
         uint256 r0 = z.row > k.row ? z.row : k.row;
         uint256 r1 = _min(uint256(z.row) + z.rows, uint256(k.row) + k.rows);
+        if (c1 <= c0 || r1 <= r0) return 0;
         for (uint256 r = r0; r < r1; r++) {
             uint256 at = (r - k.row) * k.cols;
             for (uint256 c = c0; c < c1; c++) {
                 prices[at + c - k.col] = z.cellPrice;
             }
         }
+        return (r1 - r0) * (c1 - c0);
     }
 
     function _min(uint256 a, uint256 b) internal pure returns (uint256) {

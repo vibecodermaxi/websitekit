@@ -8,8 +8,8 @@ import { ImageBoardBase } from "./ImageBoardBase.t.sol";
 
 
 using ImageBoardReads for ImageBoard;
-/// @notice Zones (cells priced differently from `cellPrice`), `IMAGE-BOARD-SPEC.md` §4a; kept blocks
-/// were removed with §13 (2026-10-21). Every rule at its boundary: a zone ending exactly on
+/// @notice Zones (cells priced differently from `cellPrice`), `IMAGE-BOARD-SPEC.md` §4a; a zone
+/// priced zero keeps its cells and has its own suite (`ImageBoardKept.t.sol`). Every rule at its boundary: a zone ending exactly on
 /// the grid's edge and one cell past it, zones that touch and zones that share one cell, a block one
 /// cell into a zone.
 ///
@@ -167,10 +167,10 @@ contract ImageBoardZonesTest is ImageBoardBase {
         _refused(_oneZone(0, 0, 1, 0, DEAR), ImageBoardStorage.InvalidConfig.selector);
     }
 
-    function test_aZeroPricedZoneIsRefused() public {
-        _refused(_oneZone(0, 0, 1, 1, 0), ImageBoardStorage.InvalidConfig.selector);
+    /// A zone priced zero keeps its cells instead (`ImageBoardKept.t.sol`).
+    function test_theSmallestZonePriceIsAPrice() public {
         _use(_create(_oneZone(0, 0, 1, 1, 1)));
-        assertEq(board.quote(0, 0, 1, 1), 1, "the smallest price is a price");
+        assertEq(board.quote(0, 0, 1, 1), 1);
     }
 
     function test_zonesThatTouchAreAccepted() public {

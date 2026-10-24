@@ -10,8 +10,10 @@ page); nothing here changes it, and the two share no code or storage.
 **Status: unaudited**, like the rest of the protocol. Outside the frozen core, like the escrow
 contracts. **The §13 generation is deployed on Robinhood Chain mainnet (4663) on 2026-10-22, and on
 its testnet (46630) on 2026-10-21**; the addresses are `imageBoardDeploymentFor` in
-`@websitekit/sdk/image-boards`. Changes to this document need a recorded reason, as
-`PROTOCOL-SPEC.md`'s do.
+`@websitekit/sdk/image-boards`. **§13.12 (squares not for sale, 2026-10-24) is a later
+implementation**, which new boards are cloned from: on 46630 since 2026-10-24, on 4663 since
+2026-10-25 (no board was created on 4663 before it). Changes to this document need a recorded
+reason, as `PROTOCOL-SPEC.md`'s do.
 
 **How to read it.** §1–§12 were written for the earlier generation, in which a block was a record
 and not a token; §13 amends them and wins wherever they differ. The earlier generation was deployed
@@ -531,7 +533,9 @@ As §4, except:
 | `description` | 0 to 1,000 bytes; optional |
 | `sourceCid` | The source image's IPFS address as binary CID bytes: 1 to 64 bytes, a CIDv1 (first byte `0x01`). The protocol cannot check that it addresses the image; renderers check what they fetch against `imageHash` (§13.7) |
 | `imageHash` | `sha256` of the source image's bytes (§13.7) |
-| `kept` | **Removed**, with kept blocks (§4a), `BlockKept`, `keptCount` and `CellsKept` (§11.5). A creator who wants their own spot buys it after creation, like anyone else, and it can be taken like any other block |
+| `cellPrice` | Any, zero included (§13.12): zero keeps every cell outside a priced zone. What a square costs now is this at `priceBps` (§2a) |
+| `zones` | As §4a, except that a zone's price may be zero, which keeps its cells (§13.12) |
+| `kept` | **Removed**, with kept blocks (§4a), `BlockKept` and `keptCount` (§11.5). Squares are kept another way since 2026-10-24: a price of zero (§13.12), which no block holds |
 
 Anything else reverts `InvalidConfig`, as today.
 
@@ -669,3 +673,44 @@ a fixture shared with the SDK; `poke` once per term at the second it lapses; the
 parsed as JSON for names with quotes, backslashes and control characters; the extension's storage
 layout checked against the board's; and gas for the worst buy and the worst take measured cold
 again under §11.4's bound.
+
+### 13.12 Squares not for sale — added 2026-10-24
+
+**Recorded reason**: a seller who wants to sell only part of a picture — space in one corner, the
+rest of the picture theirs — could not: every square was for sale at some price. §4a's kept blocks
+covered a creator's own logo, but went with this generation (§13.3): a kept block would have been a
+token minted at creation, putting a board's collection on marketplaces before any sale, and its
+protection ended the moment its creator sold it elsewhere. This keeps squares without either: **a
+creation price of zero keeps a square — never for sale, first-hand or by a take, for good.** No
+block, no token and no owner: the source image shows there.
+
+- `cellPrice` may be zero: every cell outside a zone is then kept, and the board sells only its
+  priced zones. A zone's `cellPrice` may be zero: its cells are kept. Everything else in §4a about
+  zones holds.
+- **A board must sell something**: if no cell is left at a price, `initialize` reverts
+  `InvalidConfig`.
+- `freeCells` counts only cells a first buy can take: at creation, each priced zone's cells, and the
+  cells outside the zones unless `cellPrice` is zero. A board whose priced cells are all sold reads
+  zero.
+- **`CellsKept`**: a rectangle that meets any kept cell is refused with it — in `buyError`'s order,
+  after the rectangle's shape (`EmptyBlock`, `OutsideGrid`, `CellsTaken`, `TooLarge`) and before any
+  covered block is asked (`TooManyBlocks`, `CoolingDown`). It is decided from the zones alone — a
+  zone priced zero meets the rectangle, or `cellPrice` is zero and the priced zones' overlaps with
+  the rectangle do not cover it (zones never overlap, so the overlaps add up) — so a buy costs
+  nothing more per cell. No block ever holds a kept cell, so no take can reach one.
+- `lowerPrices` scales a price of zero to zero: a kept cell stays kept. The renderer, the metadata
+  and the drawn board (§13.9) need nothing new: a kept cell is one no block holds, and the source
+  shows there.
+- **How it reaches a deployment**: `setImplementation` (§13.2) points the Boards collection's NEW
+  boards at an implementation with this rule; boards created before keep theirs
+  (`implementationOf`). The renderer is unchanged, so the new implementation names the one boards
+  already have.
+
+Tests: a suite of its own (each rule at its boundary — a rectangle touching kept cells from outside
+and one cell into them, a board priced zero whose touching priced zones cover a rectangle together,
+the smallest board that sells anything, three boards that sell nothing, a cut, kept refused before a
+cooldown, a buy of several); the invariant board keeps a zone priced zero, its model refusing kept
+cells cell by cell where the contract decides from the zones, and the refusal's selector checked both
+ways; the grid vectors carry the market board with a zone priced zero and a board priced zero swept
+while its one block cools and after; 11 of 12 mutations caught, the survivor equivalent (a zone that
+only touches a rectangle overlaps it in zero cells either way).

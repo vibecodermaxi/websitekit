@@ -25,6 +25,14 @@
  * implementation's, so neither variable is asked. A board records the collection that created it,
  * so one implementation serves any number of collections. Every read-back still runs.
  *
+ * **`IMAGE_BOARD_COLLECTION=0x…` moves an existing collection's NEW boards to a new implementation**
+ * (2026-10-24, squares not for sale): a new extension and implementation over the renderer the
+ * collection's current implementation names, then `setImplementation` — sent by the deployer, who
+ * must be the collection's owner. Boards already created keep theirs for good (`implementationOf`).
+ * The collection's name, symbol, owner and metadata are read from it, so none of those variables is
+ * asked, and on a testnet `IMAGE_BOARD_TOKEN` must name the token it already allows. The smoke runs
+ * against it there.
+ *
  * **The renderer's two strings are fixed for every board of this implementation** — nobody can
  * change how an existing board's metadata reads. `IMAGE_BOARD_THUMBNAIL_BASE` serves the board
  * token's composite (`<base><token>?v=<changes>`); `IMAGE_BOARD_RENDERER_PAGE` is the reference
@@ -157,12 +165,21 @@ async function signPermit(
 // What is being deployed against
 // ---------------------------------------------------------------------------
 
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const slotFactory = address('WEBSITEKIT_FACTORY');
-const collectionName = required('IMAGE_BOARD_NAME');
-const collectionSymbol = required('IMAGE_BOARD_SYMBOL');
-const owner = address('IMAGE_BOARD_OWNER');
-const contractURI = contractUriFrom(required('IMAGE_BOARD_CONTRACT_JSON'));
 const existing = process.env.IMAGE_BOARD_IMPLEMENTATION ? address('IMAGE_BOARD_IMPLEMENTATION') : null;
+const upgrading = process.env.IMAGE_BOARD_COLLECTION ? address('IMAGE_BOARD_COLLECTION') : null;
+if (existing && upgrading) throw new Error('IMAGE_BOARD_IMPLEMENTATION and IMAGE_BOARD_COLLECTION are two different jobs: set one');
+if (upgrading && activeChain.testnet && !process.env.IMAGE_BOARD_TOKEN) {
+  throw new Error('IMAGE_BOARD_COLLECTION on a testnet needs IMAGE_BOARD_TOKEN: the token that collection already allows');
+}
+const collectionName = upgrading ? await read<string>(upgrading, collectionArt.abi, 'name') : required('IMAGE_BOARD_NAME');
+const collectionSymbol = upgrading ? await read<string>(upgrading, collectionArt.abi, 'symbol') : required('IMAGE_BOARD_SYMBOL');
+const owner = upgrading ? await read<Address>(upgrading, collectionArt.abi, 'owner') : address('IMAGE_BOARD_OWNER');
+const contractURI = upgrading ? await read<string>(upgrading, collectionArt.abi, 'contractURI') : contractUriFrom(required('IMAGE_BOARD_CONTRACT_JSON'));
+// The implementation whose renderer, and so whose two strings, are kept: the given one, or the
+// collection's current one when only its new boards move.
+const keptFrom = existing ?? (upgrading ? await read<Address>(upgrading, collectionArt.abi, 'implementation') : null);
 
 /** The collection's metadata from a JSON file: refused unless it parses to an object with a name. */
 function contractUriFrom(file: string): string {
@@ -181,8 +198,8 @@ function contractUriFrom(file: string): string {
 
 let thumbnailBase: string;
 let rendererPage: string;
-if (existing) {
-  const existingRenderer = await read<Address>(existing, boardArt.abi, 'renderer');
+if (keptFrom) {
+  const existingRenderer = await read<Address>(keptFrom, boardArt.abi, 'renderer');
   [thumbnailBase, rendererPage] = await Promise.all([
     read<string>(existingRenderer, rendererArt.abi, 'thumbnailBase'),
     read<string>(existingRenderer, rendererArt.abi, 'rendererPage'),
@@ -212,12 +229,14 @@ console.log(`deployer          ${deployer.address} — ${formatEther(balance)} E
 console.log(`collection        "${collectionName}" (${collectionSymbol})`);
 console.log(`collection owner  ${owner} (allowToken and setImplementation, for new boards only; handover only)`);
 if (existing) console.log(`implementation    ${existing} (deployed; only the collection is new)`);
+if (upgrading) console.log(`collection        ${upgrading} (deployed; its NEW boards move to a new implementation over the renderer of ${keptFrom})`);
 console.log(`thumbnails        ${thumbnailBase}<token>?v=<changes>`);
 console.log(`renderer page     ${rendererPage}?chain=…&board=…`);
 // Whole, never cut: it is fixed for good, and a cut hid the curly quotes of 2026-10-22.
 console.log(`collection meta   ${contractURI}`);
 console.log(`protocol terms    ${protocolBps} bps to ${protocolTreasury}, read from SlotSite ${siteImplementation}\n`);
 if (balance === 0n) throw new Error('deployer has no balance');
+if (upgrading && !same(owner, deployer.address)) throw new Error(`${upgrading} is owned by ${owner}: setImplementation must be sent by its owner`);
 if (protocolBps !== 500n) throw new Error(`the protocol generation takes ${protocolBps} bps; image boards were decided at 500`);
 
 // ---------------------------------------------------------------------------
@@ -272,11 +291,22 @@ if (existing) {
   ]);
 } else {
   extension = await deploy('ImageBoardExtension', extensionArt, [protocolBps, protocolTreasury]);
-  renderer = await deploy('ImageBoardRenderer', rendererArt, [thumbnailBase, rendererPage]);
+  // A renderer is fixed per implementation and reads only the board, so a move keeps the one boards
+  // already have: the same metadata for every board of the collection.
+  renderer = keptFrom
+    ? await read<Address>(keptFrom, boardArt.abi, 'renderer')
+    : await deploy('ImageBoardRenderer', rendererArt, [thumbnailBase, rendererPage]);
   // The implementation READS its protocol terms from the extension, so the two cannot disagree.
   implementation = await deploy('ImageBoard', boardArt, [extension, renderer]);
 }
-const collection = await deploy('ImageBoardCollection', collectionArt, [collectionName, collectionSymbol, owner, implementation, [token], contractURI]);
+let collection: Address;
+if (upgrading) {
+  await write('setImplementation', upgrading, collectionArt.abi, 'setImplementation', [implementation]);
+  collection = upgrading;
+  console.log(`  setImplementation    ${collection} → ${implementation} (boards created before keep theirs)`);
+} else {
+  collection = await deploy('ImageBoardCollection', collectionArt, [collectionName, collectionSymbol, owner, implementation, [token], contractURI]);
+}
 
 const [recBps, recTreasury, recExt, recRenderer, recThumb, recPage, recImpl, recOwner, allowed, recContract, recName, recSymbol] = await Promise.all([
   read<bigint>(implementation, boardArt.abi, 'protocolBps'),
@@ -292,7 +322,6 @@ const [recBps, recTreasury, recExt, recRenderer, recThumb, recPage, recImpl, rec
   read<string>(collection, collectionArt.abi, 'name'),
   read<string>(collection, collectionArt.abi, 'symbol'),
 ]);
-const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 if (recBps !== protocolBps || !same(recTreasury, protocolTreasury)) throw new Error('implementation records other protocol terms');
 if (!same(recExt, extension) || !same(recRenderer, renderer)) throw new Error(`implementation points at ${recExt} and ${recRenderer}`);
 if (recThumb !== thumbnailBase || recPage !== rendererPage) throw new Error(`renderer carries "${recThumb}" and "${recPage}"`);
@@ -330,8 +359,11 @@ if (activeChain.testnet) {
         sourceCid: '0x01551220ab',
         name: 'Deploy smoke "board"',
         description: '',
-        // A dear 2×2 zone at the top-left.
-        zones: [{ col: 0, row: 0, cols: 2, rows: 2, cellPrice: 20_000n }],
+        // A dear 2×2 zone at the top-left, and a 2×2 not for sale (2026-10-24).
+        zones: [
+          { col: 0, row: 0, cols: 2, rows: 2, cellPrice: 20_000n },
+          { col: 10, row: 10, cols: 2, rows: 2, cellPrice: 0n },
+        ],
         // The Standard profile with no cooldown, so the smoke can take a block it has just sold.
         terms: { takeBps: 14_000n, payoutBps: 11_500n, reversionBps: 9_700n, maxReversionWeeks: 52n, cooldownSecs: 0n },
       },
@@ -359,6 +391,44 @@ if (activeChain.testnet) {
   if (boardMeta.image !== `${thumbnailBase}${boardToken}?v=0`) throw new Error(`smoke board's thumbnail is ${String(boardMeta.image)}`);
   const symbol = await read<string>(board, boardArt.abi, 'symbol');
   if (symbol !== `${collectionSymbol}-${boardToken}`) throw new Error(`smoke board's own symbol is ${symbol}`);
+
+  // Squares not for sale (2026-10-24): the zone priced zero is no free square and refuses a buy; a
+  // board priced zero is refused with nothing to sell, and made with one priced square.
+  const keptSelector = keccak256(toHex('CellsKept()')).slice(0, 10);
+  const free = await read<bigint>(board, boardArt.abi, 'freeCells');
+  if (free !== 30n * 67n - 4n) throw new Error(`smoke board has ${free} free squares, not ${30 * 67 - 4}`);
+  const keptAnswer = await read<Hex>(board, boardArt.abi, 'buyError', [[{ col: 9, row: 9, cols: 2, rows: 2 }]]);
+  if (keptAnswer !== keptSelector) throw new Error(`a buy one square into the zone not for sale answers ${keptAnswer}, not CellsKept`);
+  const pricedZero = (zones: readonly { col: number; row: number; cols: number; rows: number; cellPrice: bigint }[]) => [
+    deployer.address,
+    encodeAbiParameters(IMAGE_BOARD_CONFIG_PARAMS, [
+      {
+        settlementToken: token,
+        width: 300,
+        height: 671,
+        cellSize: 10,
+        cellPrice: 0n,
+        imageHash: keccak256(toHex('deploy smoke, priced zero')),
+        sourceCid: '0x01551220ab',
+        name: 'Deploy smoke, priced zero',
+        description: '',
+        zones,
+        terms: { takeBps: 14_000n, payoutBps: 11_500n, reversionBps: 9_700n, maxReversionWeeks: 52n, cooldownSecs: 0n },
+      },
+    ]),
+  ];
+  const nothingForSale = await publicClient
+    .simulateContract({ address: collection, abi: collectionArt.abi, functionName: 'createBoardFor', args: pricedZero([]), account: deployer } as never)
+    .then(() => null, (error: unknown) => error);
+  if (!nothingForSale) throw new Error('a board priced zero with no priced zone was accepted');
+  await publicClient.simulateContract({
+    address: collection,
+    abi: collectionArt.abi,
+    functionName: 'createBoardFor',
+    args: pricedZero([{ col: 29, row: 66, cols: 1, rows: 1, cellPrice: 1n }]),
+    account: deployer,
+  } as never);
+  console.log(`  smoke not for sale   the zone priced zero refuses a buy (CellsKept) and is no free square; a board priced zero is refused with nothing for sale and accepted with one priced square`);
 
   // One row in the zone, one below it: two cells at 20,000 and two at the base 10,000.
   // `quoteBlocks` of one area: the board carries no single-area read since rentals (2026-10-20).
@@ -443,8 +513,11 @@ if (activeChain.testnet) {
   console.log(`  smoke rental         block 3 rented for an hour for ${formatUnits(cost, 6)} by permit → ${recipient}, its user; 5% + 5% credited, the rest escrowed (gas ${rentReceipt.gasUsed})`);
 }
 
+// A testnet's Blockscout takes a script; 4663's answers a Cloudflare challenge, so off a testnet the
+// commands name Sourcify, which Etherscan picks up its matches from.
+const verifier = activeChain.testnet ? `--verifier blockscout --verifier-url ${activeChain.blockExplorers.default.url}/api` : '--verifier sourcify --watch';
 const verify = (addr: Address, contract: string, signature: string, args: string) => `  forge verify-contract ${addr} ${contract} --chain-id ${activeChain.id} \\
-    --verifier blockscout --verifier-url ${activeChain.blockExplorers.default.url}/api \\
+    ${verifier} \\
     --constructor-args $(cast abi-encode "${signature}" ${args})`;
 
 console.log(`
@@ -453,13 +526,13 @@ Deployed. Record in packages/websitekit-sdk/src/image-boards.ts (IMAGE_BOARD_DEP
   implementation: '${implementation.toLowerCase()}', extension: '${extension.toLowerCase()}', renderer: '${renderer.toLowerCase()}',
   collection: '${collection.toLowerCase()}', token: '${token.toLowerCase()}',
 
-Verify ${existing ? 'the collection' : 'all four'} (on 4663 Blockscout refuses scripts: use --verifier sourcify; Etherscan picks up Sourcify's matches):
+Verify ${existing ? 'the collection' : upgrading ? 'the extension and the implementation' : 'all four'}:
 
   cd packages/websitekit-contracts
 ${existing ? '' : `${verify(extension, 'src/ImageBoardExtension.sol:ImageBoardExtension', 'constructor(uint256,address)', `${protocolBps} ${protocolTreasury}`)}
-${verify(renderer, 'src/ImageBoardRenderer.sol:ImageBoardRenderer', 'constructor(string,string)', `"${thumbnailBase}" "${rendererPage}"`)}
-${verify(implementation, 'src/ImageBoard.sol:ImageBoard', 'constructor(address,address)', `${extension} ${renderer}`)}
-`}${verify(collection, 'src/ImageBoardCollection.sol:ImageBoardCollection', 'constructor(string,string,address,address,address[],string)', `"${collectionName}" "${collectionSymbol}" ${owner} ${implementation} "[${token}]" ${shellQuote(contractURI)}`)}
+${upgrading ? '' : `${verify(renderer, 'src/ImageBoardRenderer.sol:ImageBoardRenderer', 'constructor(string,string)', `"${thumbnailBase}" "${rendererPage}"`)}
+`}${verify(implementation, 'src/ImageBoard.sol:ImageBoard', 'constructor(address,address)', `${extension} ${renderer}`)}
+`}${upgrading ? '' : verify(collection, 'src/ImageBoardCollection.sol:ImageBoardCollection', 'constructor(string,string,address,address,address[],string)', `"${collectionName}" "${collectionSymbol}" ${owner} ${implementation} "[${token}]" ${shellQuote(contractURI)}`)}
 `);
 
 /** One shell word, whatever the string holds — the metadata carries apostrophes. */
