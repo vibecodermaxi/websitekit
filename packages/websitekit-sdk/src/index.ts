@@ -176,7 +176,7 @@ export {
 } from './settlement';
 export type { SettlementToken, SettlementCurrency } from './settlement';
 
-// Deployed addresses (§7.9 — one chain at v1, deliberately).
+// Deployed addresses — mainnet and its testnet, through `deploymentFor` (§7.9).
 export {
   ROBINHOOD_MAINNET,
   ROBINHOOD_TESTNET,

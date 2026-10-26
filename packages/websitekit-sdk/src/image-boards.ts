@@ -13,9 +13,9 @@
  * `readBoardContractURI`. Pictures are addressed by their hash on IPFS (`contentHashToCid`), the
  * source by its own CID (`sourceCidOf`).
  *
- * **This generation is not deployed yet.** `IMAGE_BOARD_DEPLOYMENTS` is empty until it is;
- * `imageBoardDeploymentFor` throws for any chain without one rather than answering with addresses
- * whose ABI is not this one.
+ * **Deployed on Robinhood Chain mainnet (4663) and its testnet (46630)**, in
+ * `IMAGE_BOARD_DEPLOYMENTS`. `imageBoardDeploymentFor` throws for any other chain rather than
+ * answering with addresses whose ABI is not this one.
  *
  * Builders return a `CallRequest` and never send; nothing here holds a wallet. Reads take the
  * client as an argument and are plain `readContract` calls, so a client with `batch.multicall`

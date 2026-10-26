@@ -106,6 +106,54 @@ export default function Home() {
           </div>
         </header>
 
+        <h2 id="image-boards">Image boards</h2>
+        <p className="section-note">
+          The second kind of inventory: one picture, issued as rectangular blocks of its squares.
+          Each board is a token in a shared Boards collection and is itself an ERC-721 whose tokens
+          are its blocks, so a block trades anywhere an NFT does. On Robinhood Chain mainnet,
+          settling in USDG; anyone can create a board.
+        </p>
+
+        <ul className="benefits">
+          <li>
+            <b>Seller</b>
+            <span>
+              Creates a board from one picture and prices its squares, by zone if they like; a price
+              of zero keeps squares out of sale for good. Whoever holds the board&rsquo;s token takes
+              95% of each square sold and a share of every resale, take and rental, and may lower
+              prices but never raise them.
+            </span>
+          </li>
+          <li>
+            <b>Block holder</b>
+            <span>
+              Buys any rectangle of squares and puts their own picture in it. A sold square can be
+              taken at its price times the board&rsquo;s take multiple, crediting the holder a payout;
+              the take terms are frozen when the board is created.
+            </span>
+          </li>
+          <li>
+            <b>Tenant</b>
+            <span>
+              Rents a block by the day for a prepaid term. The tenant&rsquo;s picture shows over the
+              holder&rsquo;s until the term ends, and rent streams to the holder by the second.
+            </span>
+          </li>
+          <li>
+            <b>No host required</b>
+            <span>
+              Metadata is built on chain and every picture is addressed by its hash on IPFS. A
+              reference renderer draws any board from the chain alone.
+            </span>
+          </li>
+        </ul>
+
+        <p className="sub stack-note">
+          The mechanics are in the <Link href="/docs/guide#image-boards">guide</Link>, the rules in
+          the <Link href="/docs/image-board-spec">image-board spec</Link>, and the client is{' '}
+          <code>@websitekit/sdk/image-boards</code>.
+        </p>
+
         <h2>Documentation</h2>
         <p className="section-note">
           Rendered from the markdown in <code>docs/</code>, so the site and the repository cannot
@@ -133,8 +181,9 @@ export default function Home() {
             <span className="kicker">generated from the types</span>
             <strong>API reference</strong>
             <p>
-              Every export of <code>@websitekit/sdk</code>, read out of the package&rsquo;s own type
-              declarations at build time — so it cannot drift from the code it documents.
+              Every export of <code>@websitekit/sdk</code> and its image-board entry point, read out
+              of the package&rsquo;s own type declarations at build time — so it cannot drift from
+              the code it documents.
             </p>
           </Link>
         </div>

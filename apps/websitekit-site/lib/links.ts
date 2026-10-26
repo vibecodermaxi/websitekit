@@ -26,7 +26,7 @@ export const PACKAGES: PackageLink[] = [
   {
     name: '@websitekit/sdk',
     url: 'https://www.npmjs.com/package/@websitekit/sdk',
-    blurb: 'Reads, writes and pricing. Takes your viem client; ships no wallet of its own.',
+    blurb: 'Reads, writes and pricing, for page slots and image boards. Takes your viem client; ships no wallet of its own.',
   },
   {
     name: '@websitekit/react',

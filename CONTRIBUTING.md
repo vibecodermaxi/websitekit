@@ -8,15 +8,21 @@ are the ones that find something wrong.
 ```bash
 pnpm install          # Node 22.13+; the default shell Node is usually too old for pnpm
 pnpm test             # all packages — needs `forge` on PATH, because the parity tests spawn it
-pnpm test:contracts   # contracts only (~2m30s; the invariant campaigns are most of it)
+pnpm test:contracts   # contracts only (~7m; the invariant campaigns are most of it)
 pnpm sizes            # runtime bytes against the 24,576 limit
 ```
 
+CI installs Foundry `stable` and refuses unformatted Solidity, so run `forge fmt` in
+`packages/websitekit-contracts` before pushing. A first pass can leave a line the check still
+flags; run it until `forge fmt --check` is clean.
+
 ## Things worth knowing before you change contracts
 
-- **`SlotSite` has ~2.6 KB of headroom** against EIP-170, and `via_ir` is deliberately unavailable —
-  it caches the `TIMESTAMP` opcode across external calls, which silently breaks every
-  time-dependent test. Size has to come from architecture, not the compiler. Run `pnpm sizes`.
+- **`SlotSite` and `ImageBoard` each have under 2.5 KB of headroom** against EIP-170 (2,473 B and
+  2,233 B), and `via_ir` is deliberately unavailable — it caches the `TIMESTAMP` opcode across
+  external calls, which silently breaks every time-dependent test. Size has to come from
+  architecture, not the compiler: `ImageBoard` runs set-up and rentals in `ImageBoardExtension` by
+  delegatecall for exactly this reason. Run `pnpm sizes`.
 - **`SlotSite` is frozen per clone.** A deployed site keeps its implementation forever, so a change
   here is a new generation, not an upgrade. `SlotReader` is the piece that is *meant* to change.
 - **Money arithmetic belongs in `Pricing` or `RentalsLib`, never inline in the site.** Inline, it is
@@ -24,6 +30,10 @@ pnpm sizes            # runtime bytes against the 24,576 limit
   so sweeping the configuration space would need one site per configuration.
 - **`test/reference/PricingFrozen.sol` is vendored and frozen.** If v2's pricing diverges from it,
   that divergence is exactly what the harness exists to catch. Do not edit it.
+- **`ImageBoard`'s rules have a TypeScript twin.** `packages/websitekit-sdk/src/image-grid.ts` is
+  pinned to the contract by the vectors `script/GenImageGridVectors.s.sol` writes. Change a grid,
+  price or take rule and extend the generator in the same change, or `image-grid.vectors.test.ts`
+  passes without ever checking the new rule.
 
 ## Adding an invariant
 
@@ -38,6 +48,10 @@ Two mechanical traps, both of which cost real time:
 - **Coverage assertions go in `afterInvariant`**, guarded on a call counter. Foundry evaluates
   invariants once before the first call, so a coverage assertion written as an invariant fails every
   run by construction — and on a shrink replay it fails *first*, replacing the real failure message.
+- **`afterInvariant` runs after every run, so each coverage path must land in every one.** A path
+  that lands about five times a run misses roughly one run in a hundred, and with a few such paths a
+  48-run campaign fails about half the time with nothing wrong. Make a thin path happen by construction, as
+  `rentCycle` and `giveAround` do in the image-board suite, rather than adding runs.
 
 ## The trap that has cost the most time
 

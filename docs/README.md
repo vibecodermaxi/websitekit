@@ -20,6 +20,10 @@ cd my-site && pnpm install && pnpm dev
 No wallet, no credentials, no API key. The page reads a live board off Robinhood Chain mainnet and
 renders. Set `NEXT_PUBLIC_WEBSITEKIT_CHAIN_ID=46630` to use the free testnet instead.
 
+Everything up to [Image boards](#image-boards) is about regions of a publisher's page. Image boards
+are the second kind of inventory, one picture sold as blocks of its squares, with their own
+contracts and their own entry point in the SDK.
+
 ---
 
 ## The three-party model

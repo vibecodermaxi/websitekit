@@ -4,7 +4,7 @@ import './globals.css';
 export const metadata = {
   title: 'websitekit — the issuance and settlement layer for tokenized page inventory',
   description:
-    'Publishers register regions of a page as transferable positions. Investors acquire and trade them. Holders delegate write access without surrendering the asset — the primitive a rental market for advertising demand plugs into.',
+    'Publishers register regions of a page as transferable positions. Investors acquire and trade them. Holders delegate write access without surrendering the asset — the primitive a rental market for advertising demand plugs into. Image boards sell one picture as tradable blocks.',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -1,7 +1,7 @@
 {
   "name": "@websitekit/sdk",
   "version": "0.6.0",
-  "description": "Issuance and settlement layer for tokenized page inventory — reads, writes and pricing for SlotSite.",
+  "description": "Issuance and settlement layer for tokenized page inventory — reads, writes and pricing for SlotSite and image boards.",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -3,6 +3,8 @@
 Reads, writes and pricing for **websitekit** — an issuance and settlement layer for tokenized page
 inventory. A publisher marks regions of their page as slots; anyone buys one and becomes its
 effective owner, able to write its content, trade it as an ERC-721, or rent it to an advertiser.
+[Image boards](#image-boards), one picture sold as blocks, have their own entry point,
+`@websitekit/sdk/image-boards`.
 
 ```bash
 npm install @websitekit/sdk viem

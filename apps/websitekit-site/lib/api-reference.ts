@@ -22,6 +22,11 @@ import ts from 'typescript';
 // absent is worse than one that never depended on it.
 const SDK_ENTRY = path.resolve(process.cwd(), '../../packages/websitekit-sdk/src/index.ts');
 
+// The image-board client is a second entry point, `@websitekit/sdk/image-boards`, because its names
+// (`quote`, `readBlock`, `Rect`) are generic. Until 2026-10-27 this page read only the first, and
+// claimed every export while missing the whole of the second.
+const IMAGE_BOARDS_ENTRY = path.resolve(process.cwd(), '../../packages/websitekit-sdk/src/image-boards.ts');
+
 export interface ApiSymbol {
   name: string;
   /** `function`, `const`, `type`, `interface`, `class`, `enum` — what a reader needs to know first. */
@@ -138,10 +143,11 @@ export function readSdkSurface(): Map<string, ApiSymbol> {
   return cachedFlat;
 }
 
-export function readApiReference(): ApiGroup[] {
-  if (cached) return cached;
+let program: ts.Program | null = null;
 
-  const program = ts.createProgram([SDK_ENTRY], {
+/** Both entry points from one program, because building it is the slowest part of the build. */
+function exportsOf(entryPath: string): { checker: ts.TypeChecker; entry: ts.SourceFile; exported: ts.Symbol[] } {
+  program ??= ts.createProgram([SDK_ENTRY, IMAGE_BOARDS_ENTRY], {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
@@ -150,71 +156,163 @@ export function readApiReference(): ApiGroup[] {
     noEmit: true,
   });
   const checker = program.getTypeChecker();
-  const entry = program.getSourceFile(SDK_ENTRY);
-  if (!entry) throw new Error(`api-reference: cannot read the SDK entry point at ${SDK_ENTRY}`);
+  const entry = program.getSourceFile(entryPath);
+  if (!entry) throw new Error(`api-reference: cannot read the SDK entry point at ${entryPath}`);
 
   const moduleSymbol = checker.getSymbolAtLocation(entry);
-  if (!moduleSymbol) throw new Error('api-reference: the SDK entry point resolved to no module symbol');
+  if (!moduleSymbol) throw new Error(`api-reference: ${path.basename(entryPath)} resolved to no module symbol`);
 
   const exported = checker.getExportsOfModule(moduleSymbol);
-  if (exported.length === 0) throw new Error('api-reference: the SDK exports nothing — the program did not resolve');
-
-  const { order, blurbs, of } = groupsFromEntry(entry.getFullText());
-  const byGroup = new Map<string, ApiSymbol[]>();
-
-  for (const symbol of exported) {
-    const resolved = symbol.getFlags() & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
-    const declaration = resolved.getDeclarations()?.[0];
-
-    const kind = kindOf(resolved, declaration);
-
-    // A type alias or interface is not a value, so asking for its value type answers `any`. Its
-    // declaration IS the documentation — the field list is the whole point of looking it up.
-    let signature = '';
-    try {
-      if ((kind === 'interface' || kind === 'type') && declaration) {
-        signature = declaration.getText().replace(/\s+/g, ' ').replace(/^export\s+/, '').trim();
-      } else {
-        const type = declaration
-          ? checker.getTypeOfSymbolAtLocation(resolved, declaration)
-          : checker.getDeclaredTypeOfSymbol(resolved);
-        signature = checker.typeToString(type, declaration, ts.TypeFormatFlags.NoTruncation);
-      }
-    } catch {
-      signature = '';
-    }
-    const signatureFull = signature;
-    const truncated = signature.length > MAX_SIGNATURE;
-    if (truncated) signature = `${signature.slice(0, MAX_SIGNATURE)}…`;
-
-    const summary = ts
-      .displayPartsToString(resolved.getDocumentationComment(checker))
-      .split(/\n\s*\n/)[0]
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    const group = of.get(symbol.getName()) ?? 'Other';
-    const list = byGroup.get(group) ?? [];
-    list.push({
-      name: symbol.getName(),
-      kind,
-      signature,
-      signatureFull,
-      truncated,
-      summary,
-    });
-    byGroup.set(group, list);
+  if (exported.length === 0) {
+    throw new Error(`api-reference: ${path.basename(entryPath)} exports nothing — the program did not resolve`);
   }
+  return { checker, entry, exported };
+}
 
+function resolvedOf(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
+  return symbol.getFlags() & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+}
+
+function describe(checker: ts.TypeChecker, symbol: ts.Symbol): ApiSymbol {
+  const resolved = resolvedOf(checker, symbol);
+  const declaration = resolved.getDeclarations()?.[0];
+
+  const kind = kindOf(resolved, declaration);
+
+  // A type alias or interface is not a value, so asking for its value type answers `any`. Its
+  // declaration IS the documentation — the field list is the whole point of looking it up.
+  let signature = '';
+  try {
+    if ((kind === 'interface' || kind === 'type') && declaration) {
+      signature = declaration.getText().replace(/\s+/g, ' ').replace(/^export\s+/, '').trim();
+    } else {
+      const type = declaration
+        ? checker.getTypeOfSymbolAtLocation(resolved, declaration)
+        : checker.getDeclaredTypeOfSymbol(resolved);
+      signature = checker.typeToString(type, declaration, ts.TypeFormatFlags.NoTruncation);
+    }
+  } catch {
+    signature = '';
+  }
+  const signatureFull = signature;
+  const truncated = signature.length > MAX_SIGNATURE;
+  if (truncated) signature = `${signature.slice(0, MAX_SIGNATURE)}…`;
+
+  const summary = ts
+    .displayPartsToString(resolved.getDocumentationComment(checker))
+    .split(/\n\s*\n/)[0]
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return { name: symbol.getName(), kind, signature, signatureFull, truncated, summary };
+}
+
+/** Authored groups first, in their order; any other group after them, as it was first met. */
+function grouped(byGroup: Map<string, ApiSymbol[]>, order: string[], blurbs: Map<string, string>): ApiGroup[] {
   const titles = [...order.filter((title) => byGroup.has(title))];
   for (const title of byGroup.keys()) if (!titles.includes(title)) titles.push(title);
 
-  cached = titles.map((title) => ({
+  return titles.map((title) => ({
     title,
     blurb: blurbs.get(title) ?? '',
     symbols: byGroup.get(title)!.sort((a, b) => a.name.localeCompare(b.name)),
   }));
+}
+
+export function readApiReference(): ApiGroup[] {
+  if (cached) return cached;
+
+  const { checker, entry, exported } = exportsOf(SDK_ENTRY);
+  const { order, blurbs, of } = groupsFromEntry(entry.getFullText());
+  const byGroup = new Map<string, ApiSymbol[]>();
+
+  for (const symbol of exported) {
+    const group = of.get(symbol.getName()) ?? 'Other';
+    byGroup.set(group, [...(byGroup.get(group) ?? []), describe(checker, symbol)]);
+  }
+
+  cached = grouped(byGroup, order, blurbs);
   return cached;
+}
+
+/**
+ * The banner comments in an entry point — a title line between two rules of dashes — with the
+ * line each title sits on. A title with a colon is split there into the heading and its note.
+ */
+function bannersOf(entry: ts.SourceFile): { line: number; title: string; blurb: string }[] {
+  const lines = entry.getFullText().split('\n');
+  const rule = /^\/\/ -{20,}\s*$/;
+  const banners: { line: number; title: string; blurb: string }[] = [];
+  for (let i = 1; i + 1 < lines.length; i++) {
+    const text = lines[i].match(/^\/\/ (.+?)\s*$/)?.[1];
+    if (!text || !rule.test(lines[i - 1]) || !rule.test(lines[i + 1])) continue;
+    // Backticks come off the heading, which renders as plain text in the page and the rail.
+    const colon = text.indexOf(': ');
+    banners.push(
+      colon === -1
+        ? { line: i, title: text.replace(/`/g, ''), blurb: '' }
+        : { line: i, title: text.slice(0, colon).replace(/`/g, ''), blurb: text.slice(colon + 2) },
+    );
+  }
+  return banners;
+}
+
+/** The first sentence of a file's leading doc comment: what the file says it is. */
+function firstSentenceOf(file: ts.SourceFile): string {
+  const doc = file.getFullText().match(/^\s*\/\*\*([\s\S]*?)\*\//)?.[1] ?? '';
+  const paragraph = doc
+    .split('\n')
+    .map((line) => line.replace(/^\s*\*\s?/, ''))
+    .join('\n')
+    .trim()
+    .split(/\n\s*\n/)[0]
+    .replace(/\s+/g, ' ');
+  return paragraph.match(/^(.+?\.)(\s|$)/)?.[1] ?? paragraph;
+}
+
+let cachedImageBoards: ApiGroup[] | null = null;
+
+/**
+ * Every export of `@websitekit/sdk/image-boards`.
+ *
+ * Grouped differently from the main entry because it is written differently: its own exports are
+ * declarations under banner comments (`// Reads` between two rules of dashes), and the rest arrive
+ * by `export *` from the grid twin, the compositor and content addressing. A declaration takes the
+ * banner above it; a re-export takes the file it is declared in, with that file's first sentence as
+ * the note. Both are read from the source, so neither is a second taxonomy to keep in sync.
+ *
+ * Kept apart from `readSdkSurface`, which the v1-to-v2 page diffs against v1's main entry: these
+ * exports never had a v1 and would all read as additions.
+ */
+export function readImageBoardsReference(): ApiGroup[] {
+  if (cachedImageBoards) return cachedImageBoards;
+
+  const { checker, entry, exported } = exportsOf(IMAGE_BOARDS_ENTRY);
+  const banners = bannersOf(entry);
+  const blurbs = new Map(banners.map((banner) => [banner.title, banner.blurb] as const));
+  const byGroup = new Map<string, ApiSymbol[]>();
+
+  for (const symbol of exported) {
+    const declaration = resolvedOf(checker, symbol).getDeclarations()?.[0];
+    const file = declaration?.getSourceFile();
+    let group = 'Other';
+    if (declaration && file === entry) {
+      const line = file.getLineAndCharacterOfPosition(declaration.getStart()).line;
+      group = banners.filter((banner) => banner.line < line).pop()?.title ?? 'Other';
+    } else if (file) {
+      group = `From ${path.basename(file.fileName)}`;
+      blurbs.set(group, firstSentenceOf(file));
+    }
+    byGroup.set(group, [...(byGroup.get(group) ?? []), describe(checker, symbol)]);
+  }
+
+  // Banners in file order, then each re-exported file in the order the entry re-exports it, then
+  // whatever had no banner above it.
+  const reexported = [...entry.getFullText().matchAll(/^export (?:\*|\{[^}]*\}) from '\.\/([\w-]+)'/gm)].map(
+    (match) => `From ${match[1]}.ts`,
+  );
+  cachedImageBoards = grouped(byGroup, [...banners.map((banner) => banner.title), ...reexported, 'Other'], blurbs);
+  return cachedImageBoards;
 }
 
 /** Which authored group a symbol belongs to, for pages that need the grouping but not the layout. */

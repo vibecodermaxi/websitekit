@@ -41,7 +41,7 @@ export const DOC_PAGES: DocPage[] = [
     slug: 'guide',
     file: 'README.md',
     title: 'Guide',
-    blurb: 'The model, the layers, and every mechanism — issuance, secondary market, tenancy, terms of issue.',
+    blurb: 'The model, the layers, and every mechanism — issuance, secondary market, tenancy, terms of issue, image boards.',
   },
   {
     // Not optional. The shipping source carries **192 `§` references** into this document and five
@@ -51,6 +51,15 @@ export const DOC_PAGES: DocPage[] = [
     file: 'PROTOCOL-SPEC.md',
     title: 'Protocol spec',
     blurb: 'The contract design: state, pricing, tenancy, terms of issue, and why every parameter is what it is.',
+  },
+  {
+    // A page since image boards reached mainnet (2026-10-22); before that it linked to GitHub. The
+    // image-board contracts and SDK carry 38 `§` references into it and nine files name it, so it
+    // is the protocol spec's counterpart for the second kind of board.
+    slug: 'image-board-spec',
+    file: 'IMAGE-BOARD-SPEC.md',
+    title: 'Image-board spec',
+    blurb: 'The image-board contracts rule by rule: grid, zones, takes, resale, rentals, and boards as tokens.',
   },
 ];
 
@@ -112,8 +121,7 @@ function rewriteLinks(html: string): string {
   return html
     .replace(/href="\.\/README\.md"/g, 'href="/docs/guide"')
     .replace(/href="\.\/PROTOCOL-SPEC\.md"/g, 'href="/docs/protocol-spec"')
-    // Public, but not a page here (yet): the image-board spec links to GitHub.
-    .replace(/href="\.\/IMAGE-BOARD-SPEC\.md"/g, `href="${REPO_BLOB}docs/IMAGE-BOARD-SPEC.md"`)
+    .replace(/href="\.\/IMAGE-BOARD-SPEC\.md"/g, 'href="/docs/image-board-spec"')
     // Private by decision — see the note on DOC_PAGES above. The link text is matched lazily rather
     // than as `[^<]*`, because markdown like [`PIVOT-MAP.md`](./PIVOT-MAP.md) renders its label as a
     // nested <code>, and a character class that stops at `<` never reaches the closing tag.

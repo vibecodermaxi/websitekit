@@ -417,6 +417,11 @@ img {
   padding: 0;
 }
 
+/* The API reference's rail has a second title, for the image-board entry point. */
+.docs-rail ul + .rail-title {
+  margin-top: 1.25rem;
+}
+
 .docs-rail li a {
   display: block;
   color: var(--muted);

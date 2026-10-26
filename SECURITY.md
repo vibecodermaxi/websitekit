@@ -18,6 +18,15 @@ beside the frozen core, and one key can change the escrow policy, the token allo
 referee, and withdraw the reserve. Every address is in `packages/websitekit-sdk/src/addresses.ts`,
 and the owner is whatever `owner()` on the factory answers.
 
+**Image boards sit outside the frozen core as well, and their collection has an owner.** Every board
+is an EIP-1167 clone of the implementation `ImageBoardCollection` names when it is created, and
+keeps it for good; its protocol cut, treasury, extension and renderer are immutable in that
+implementation. The collection's owner has two powers, and both reach only boards created after
+they are used: pointing new boards at a later implementation (`setImplementation`), and choosing
+which settlement tokens a new board may use (`allowToken`). Ownership moves only by a two-step
+handover and cannot be renounced. The addresses are `imageBoardDeploymentFor` in
+`@websitekit/sdk/image-boards`, and the owner is whatever `owner()` on the collection answers.
+
 Put in only what you can afford to lose.
 
 ## Reporting a vulnerability
@@ -57,8 +66,9 @@ one, and a reward that might not be paid would be worse than saying so.
 In scope:
 
 - `packages/websitekit-contracts` — `SlotSite`, `RentalsLib`, `TermsLib`, `SlotReader`,
-  `SlotFactory`, the pricing library, and the escrow contracts (`EscrowFactory`, `EscrowVault`,
-  `Attestor`).
+  `SlotFactory`, the pricing library, the escrow contracts (`EscrowFactory`, `EscrowVault`,
+  `Attestor`), and the image-board contracts (`ImageBoard`, `ImageBoardExtension`,
+  `ImageBoardRenderer`, `ImageBoardStorage`, `ImageBoardCollection`).
 - `packages/websitekit-sdk` and `packages/websitekit-react` — anything where the client's arithmetic
   disagrees with the contract's, which is a class this repository takes seriously enough to keep a
   two-language parity harness for.
@@ -77,6 +87,8 @@ Out of scope:
 These are design decisions rather than oversights, and reporting them is not necessary:
 
 - **No protocol admin key and no upgrade on `SlotSite`.** Deliberate; see above.
+- **The image-board collection's owner picks the implementation and tokens for new boards.**
+  Deliberate, and it cannot reach a board that exists; see above.
 - **The escrow referee is trusted.** Whether a page has gone dark is decided off chain and reported
   by the key `Attestor` names; a dishonest or compromised referee can mark a board dark or fail to.
   It also sees one copy of the page, so a page served differently to it than to visitors fools it.
