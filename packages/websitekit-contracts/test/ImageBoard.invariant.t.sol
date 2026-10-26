@@ -455,6 +455,10 @@ contract ImageBoardHandler is Test {
         for (uint256 i = 0; (idSeed >> 128) % 2 == 0 && i < ghostBlocks && ghostList[id] == 0; i++) {
             id = id % ghostBlocks + 1;
         }
+        // A quarter of the time the block bought last, most often still in its cooldown, so a buy
+        // refused for one is not left to how seldom `wait` lands: about eight a run, and one run in
+        // 392 had none (2026-10-27). Nothing is newer, so its top-left cell is still its own.
+        if ((idSeed >> 128) % 2 == 1 && (idSeed >> 129) % 2 == 0) id = ghostBlocks;
         uint16[4] memory taken = _ghostShape[id];
         _tryBuy(payerSeed, recipientSeed, taken[0], taken[1], uint16(bound(cols, 1, 3)), uint16(bound(rows, 1, 3)));
     }
@@ -732,9 +736,13 @@ contract ImageBoardHandler is Test {
         // A third of the time a block in a live term, so a rented block changing hands is not left
         // to chance either (seen 2026-10-20).
         if ((toSeed >> 2) % 3 == 0 && _liveRental(idSeed) != 0) id = _liveRental(idSeed);
+        _transfer(id, actors[(toSeed >> 1) % 4], (toSeed >> 8) % 3, parties[(toSeed >> 12) % 6]);
+    }
+
+    /// One block from its owner to `to`, sent the way `mode` names (see `_transferrer`).
+    function _transfer(uint256 id, address to, uint256 mode, address party) internal {
         address from = ghostOwner[id];
-        address to = actors[(toSeed >> 1) % 4];
-        address by = _transferrer(id, from, toSeed >> 8);
+        address by = _transferrer(id, from, mode, party);
         if (ghostList[id] != 0) ghostListingsEndedByGift++;
         uint256 owedBefore = board.pendingWithdrawals(from);
         uint256 due = _mAccrued(id) - _gr[id].claimed;
@@ -749,12 +757,12 @@ contract ImageBoardHandler is Test {
         ghostTransfers++;
     }
 
-    /// Who sends a transfer: the owner, an address they approve for this block now, or an operator
-    /// they approve for all now. The approvals are made here so every path lands in every run.
-    function _transferrer(uint256 id, address owner_, uint256 seed) internal returns (address by) {
-        uint256 mode = seed % 3;
+    /// Who sends a transfer: the owner (mode 0), `party` approved for this block now (1), or `party`
+    /// approved as an operator for all now (2). The approvals are made here so every path lands in
+    /// every run. A party that is the owner sends as the owner.
+    function _transferrer(uint256 id, address owner_, uint256 mode, address party) internal returns (address by) {
         if (mode == 0) return owner_;
-        by = parties[(seed >> 4) % 6];
+        by = party;
         if (by == owner_) return owner_;
         vm.prank(owner_);
         if (mode == 1) {
@@ -766,6 +774,44 @@ contract ImageBoardHandler is Test {
             ghostOperator[owner_][by] = true;
             ghostTransfersByOperator++;
         }
+    }
+
+    /// One block given three times in one call — by an address its owner approves for it, by an
+    /// operator, then by its owner — after its owner lists it, so the first gift ends a listing.
+    /// Through `transfer` alone each of those landed about five times a run, and in 196 runs one
+    /// ended with no operator transfer (2026-10-27, after the same miss failed CI on a gift ending a
+    /// listing); here each lands on every call.
+    function giveAround(uint256 idSeed, uint256 seed) external {
+        ghostCalls++;
+        if (ghostBlocks == 0) return;
+        uint256 id = idSeed % ghostBlocks + 1;
+        if (ghostList[id] == 0 && _cellsLeft(id) != 0) {
+            uint256 price = 10_003 + seed % 1_000_000;
+            vm.prank(ghostOwner[id]);
+            board.listBlock(id, price);
+            ghostList[id] = price;
+            ghostListings++;
+        }
+        _transfer(id, actors[seed % 4], 1, _notOwner(id, seed >> 8));
+        address from = ghostOwner[id];
+        address operator = _notOwner(id, seed >> 16);
+        bool wasOperator = ghostOperator[from][operator];
+        _transfer(id, actors[(seed >> 2) % 4], 2, operator);
+        // The grant is taken back, as by an owner who let a marketplace make one sale. Left standing,
+        // every owner soon had every party as an operator, and `strangerTransfer` ran short of
+        // strangers: its attempts fell from 19 a run to 12 (2026-10-27).
+        if (!wasOperator) {
+            vm.prank(from);
+            board.setApprovalForAll(operator, false);
+            ghostOperator[from][operator] = false;
+        }
+        _transfer(id, actors[(seed >> 4) % 4], 0, address(0));
+    }
+
+    /// A party other than the block's owner, so an approval or operator path is never skipped.
+    function _notOwner(uint256 id, uint256 seed) internal view returns (address party) {
+        party = parties[seed % 6];
+        if (party == ghostOwner[id]) party = parties[(seed + 1) % 6];
     }
 
     /// An owner approves someone for one block, or sets or clears an operator for all of theirs.
@@ -1159,9 +1205,11 @@ contract ImageBoardHandler is Test {
         }
     }
 
-    /// A whole term on one block in one call: offered, rented for an hour, refused while live,
-    /// lapsed, rented again — so each of those paths is exercised in every run rather than left to
-    /// the order uniform picks happen to land in (2026-10-20).
+    /// A whole term on one block in one call: offered, refused at a stale rate, rented for an hour,
+    /// refused while live, lapsed, rented again, extended by its tenant — so each of those paths is
+    /// exercised in every run rather than left to the order uniform picks happen to land in
+    /// (2026-10-20). The stale rate and the extension joined 2026-10-27: each was a quarter of
+    /// `rentBlock`'s or `extendRent`'s calls, about five a run, and in 196 runs three ended with none.
     function rentCycle(uint256 idSeed, uint256 payerSeed, uint256 tenantSeed) external {
         ghostCalls++;
         if (ghostBlocks == 0) return;
@@ -1177,10 +1225,12 @@ contract ImageBoardHandler is Test {
         ghostRentMax[id] = 2 days;
         ghostRentListings++;
         address payer = actors[payerSeed % 4];
+        _attemptRent(id, payer, actors[tenantSeed % 4], 1 hours, offer + 1);
         _attemptRent(id, payer, actors[tenantSeed % 4], 1 hours, offer);
         _attemptRent(id, payer, actors[(tenantSeed >> 8) % 4], 1 hours, offer);
         vm.warp(block.timestamp + 1 hours);
         _attemptRent(id, payer, actors[(tenantSeed >> 16) % 4], 1 hours, offer);
+        if (block.timestamp < _gr[id].expiry) _attemptExtend(id, _gr[id].tenant, 1 hours, offer);
     }
 
     /// A rental the model accepted went through: the lapsed term's last stream to the owner, the
@@ -1211,13 +1261,18 @@ contract ImageBoardHandler is Test {
         ghostCalls++;
         uint256 id = _liveRental(idSeed);
         if (id == 0) return;
-        GhostRental storage g = _gr[id];
-        address by = bySeed % 5 == 0 ? actors[(bySeed >> 8) % 4] : g.tenant;
+        address by = bySeed % 5 == 0 ? actors[(bySeed >> 8) % 4] : _gr[id].tenant;
         uint256 rate = ghostRentRate[id];
         uint256 max = ghostRentMax[id];
         uint256 named = staleSeed % 4 == 1 ? rate + 1 : rate;
         uint256 dur = max == 0 ? 1 hours : bound(durSeed, 1 hours, max);
-        bool ok = by == g.tenant && rate != 0 && named == rate;
+        _attemptExtend(id, by, dur, named);
+    }
+
+    /// One extension the model decides before the call; on success the money is measured across it.
+    function _attemptExtend(uint256 id, address by, uint256 dur, uint256 named) internal {
+        uint256 rate = ghostRentRate[id];
+        bool ok = by == _gr[id].tenant && rate != 0 && named == rate;
 
         RentBefore memory b = _rentBefore(by);
         vm.prank(by);

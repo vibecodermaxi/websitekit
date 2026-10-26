@@ -34,8 +34,10 @@ jobs:
   contracts:
     name: contracts · forge
     runs-on: ubuntu-latest
-    # The invariant campaigns are ~147s of it; 20 leaves room for a slow runner without hanging.
-    timeout-minutes: 25
+    # The invariant campaigns are most of it. The image-board campaign alone ran ~12 min on a CI
+    # runner (2026-10-24), against ~5.5 min locally, and a failure adds minutes of shrinking: that
+    # job took 20.5 of the old 25. 40 leaves room for a slow runner without hanging.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
